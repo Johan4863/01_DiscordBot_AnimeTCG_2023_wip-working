@@ -1,0 +1,10 @@
+/*    <---- Delete this line
+TOKEN=''// Token for the current user
+DEVS=['', '']// Devs ids (can't use some commands without them)
+
+//---Data---Base---//
+DB_HOST=            // Host to connect
+DB_USER=            // User to connect
+DB_PASSWORD=        // Password to connect
+DB_NAME=            // Name to connect
+*/ //<---- Delete this line

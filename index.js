@@ -49,6 +49,24 @@ client.on('ready', () => {
 
 // MessageCreate event
 client.on('messageCreate', async (msg) => {
+  const command = msg.content.toLowerCase(); // Convert command to lowercase for case-insensitivity
+
+  // Define command aliases
+  const aliases = {
+    '!lalo': ['!draw', 'lalo', '!summon','!l'], 
+    '!inventory': ['!cards', '!cardinv', '!inv', '!i'], 
+    '!register': ['!signup'], 
+    '!helpme': ['!commands', '!h'], 
+  };
+
+  // Check if the received command is an alias, and replace it with the actual command
+  for (const [actualCommand, aliasList] of Object.entries(aliases)) {
+    if (aliasList.includes(command)) {
+      msg.content = actualCommand;
+      break;
+    }
+  }
+
   if (msg.content === 'ping') {
     msg.channel.send('pong');
   } else if (msg.content === '!lalo') {

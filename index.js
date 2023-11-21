@@ -67,6 +67,12 @@ client.on('messageCreate', async (msg) => {
     const loadAndDrawImage = async (imageUrl, x, y, width, height, cardName) => {
       const image = await loadImage(imageUrl);
       ctx.drawImage(image, x, y, width, height);
+
+       // Load and draw the overlay image
+      const overlayImageUrl = './Frame01.png';
+      const overlayImage = await loadImage(overlayImageUrl);
+      ctx.drawImage(overlayImage, x, y, width, height);
+
   
       if (!cardCounts[cardName]) {
         cardCounts[cardName] = 1;
@@ -404,7 +410,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     const userId = msg.author.id;
     const codeToView = msg.content.slice('!view'.length).trim();
 
-     // Check if the user exists in the players table
+    // Check if the user exists in the players table
     const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
     const checkUserValues = [userId];
 
@@ -427,28 +433,50 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
               if (cardResults.length === 0) {
                 msg.reply(`Card with code ${codeToView} not found in your inventory.`);
               } else {
-               // Card found, load the image and generate the view
+                // Card found, load the image and generate the view
                 const card = cardResults[0];
                 const imageUrl = card.card_url;
                 const print = card.card_print;
                 const name = card.card_name;
 
+                // Load the card image
+                const cardImage = await loadImage(imageUrl);
+
                 // Define new image size
                 const newWidth = 1500;
                 const newHeight = 2100;
+                const overlayWidthIncrease = 5; // Increase the width by five pixels
+                const overlayShiftLeft = 1; // Shift the overlay one pixel to the left
                 const canvas = createCanvas(newWidth, newHeight);
                 const ctx = canvas.getContext('2d');
-                const image = await loadImage(imageUrl);
 
                 // Calculate new image proportions
-                const scaleFactor = Math.min(newWidth / image.width, newHeight / image.height);
+                const scaleFactor = Math.min(newWidth / cardImage.width, newHeight / cardImage.height);
 
                 // Calculate position to center the image
-                const offsetX = (newWidth - image.width * scaleFactor) / 2;
-                const offsetY = (newHeight - image.height * scaleFactor) / 2;
+                const offsetX = (newWidth - cardImage.width * scaleFactor) / 2;
+                const offsetY = (newHeight - cardImage.height * scaleFactor) / 2;
 
-                // Draw the image with the new proportions and position
-                ctx.drawImage(image, offsetX, offsetY, image.width * scaleFactor, image.height * scaleFactor);
+                // Draw the card image with the new proportions and position
+                ctx.drawImage(cardImage, offsetX, offsetY, cardImage.width * scaleFactor, cardImage.height * scaleFactor);
+
+                // Load and draw the overlay image
+                const overlayImageUrl = './Frame01.png'; // Replace with the path to your second overlay image
+                const overlayImage = await loadImage(overlayImageUrl);
+
+                // Scale the overlay image to the size of the card image with width increase
+                const overlayWidth = cardImage.width + overlayWidthIncrease;
+                const overlayHeight = cardImage.height;
+                const overlayX = offsetX - overlayWidthIncrease / 2 - overlayShiftLeft; // Shift and center the overlay horizontally
+                const overlayY = offsetY;
+
+                ctx.drawImage(
+                  overlayImage,
+                  overlayX,
+                  overlayY,
+                  overlayWidth * scaleFactor,
+                  overlayHeight * scaleFactor
+                );
 
                 ctx.font = '40px Arial';
                 ctx.fillStyle = 'white';
@@ -464,7 +492,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         }
       }
     });
-  } 
+  }
 });
 
 // Start of functions

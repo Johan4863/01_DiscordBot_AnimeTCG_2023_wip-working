@@ -1,50 +1,62 @@
 [
     {
       "name": "Genos",
-      "url": "https://i.imgur.com/RpoBd3w.png"
+      "url": "https://i.imgur.com/RpoBd3w.png",
+      "series": "One Punch Man"
     },
     {
       "name": "Katara",
-      "url": "https://i.imgur.com/V98jBZL.png"
+      "url": "https://i.imgur.com/V98jBZL.png",
+      "series": "Avatar"
     },
     {
       "name": "Kafka",
-      "url": "https://i.imgur.com/gCFpBwG.png"
+      "url": "https://i.imgur.com/gCFpBwG.png",
+      "series": "Honkai Star Rail"
     },
     {
       "name": "Blade",
-      "url": "https://i.imgur.com/zo6N0tk.png"
+      "url": "https://i.imgur.com/zo6N0tk.png",
+      "series": "Honkai Star Rail"
     },
     {
       "name": "Makima",
-      "url": "https://i.imgur.com/x4xXRtt.png"
+      "url": "https://i.imgur.com/x4xXRtt.png",
+      "series": "Chainsaw Man"
     },
     {
       "name": "Fubuki",
-      "url": "https://i.imgur.com/ycrB62W.png"
+      "url": "https://i.imgur.com/ycrB62W.png",
+      "series": "One Punch Man"
     },
     {
       "name": "Toph",
-      "url": "https://i.imgur.com/djp0hQb.png"
+      "url": "https://i.imgur.com/djp0hQb.png",
+      "series": "Avatar"
     },
     {
       "name": "Anya",
-      "url": "https://i.imgur.com/gRXnwj6.png"
+      "url": "https://i.imgur.com/gRXnwj6.png",
+      "series": "Spy X Family"
     },
     {
       "name": "Lisa",
-      "url": "https://i.imgur.com/gpOTPKp.png"
+      "url": "https://i.imgur.com/gpOTPKp.png",
+      "series": "Genshin Impact"
     },
     {
       "name": "Topaz",
-      "url": "https://i.imgur.com/ziqxylu.png"
+      "url": "https://i.imgur.com/ziqxylu.png",
+      "series": "Honkai Star Rail"
     },
     {
       "name": "Sukuna",
-      "url": "https://i.imgur.com/W9A0yK8.png"
+      "url": "https://i.imgur.com/W9A0yK8.png",
+      "series": "Jujutsu Kaisen"
     },
     {
       "name": "Chiaki",
-      "url": "https://i.imgur.com/ayelJH6.png"
+      "url": "https://i.imgur.com/ayelJH6.png",
+      "series": "Dangarompa"
     }
   ]

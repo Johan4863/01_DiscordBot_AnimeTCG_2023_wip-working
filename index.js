@@ -244,12 +244,13 @@ client.on('messageCreate', async (msg) => {
   } else if (msg.content.startsWith('!addimage') && allowedUserIds.includes(msg.author.id)) {
     const args = msg.content.slice('!addimage'.length).trim().split(' ');
 
-    if (args.length === 2) {
+    if (args.length === 3) {
       const name = args[0];
       const url = args[1];
+      const series = args[2];
 
       // Add new image to the imageUrls array
-      imageUrls.push({ name, url });
+      imageUrls.push({ name, url, series });
 
       // Save changes to the file
       saveUpdatedImageUrls();
@@ -257,7 +258,7 @@ client.on('messageCreate', async (msg) => {
       msg.reply(`Image "${name}" added successfully.`);
       console.log('New image was added');
     } else {
-      msg.reply('Invalid command format. Use !addimage <name> <url>.');
+      msg.reply('Invalid command format. Use !addimage <name> <url> <series>.');
     }
 
     return;

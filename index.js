@@ -82,7 +82,7 @@ client.on('messageCreate', async (msg) => {
     const canvas = createCanvas(1875, 875);
     const ctx = canvas.getContext('2d');
 
-    const loadAndDrawImage = async (imageUrl, x, y, width, height, cardName) => {
+    const loadAndDrawImage = async (imageUrl, x, y, width, height, cardName, series) => {
       const image = await loadImage(imageUrl);
       ctx.drawImage(image, x, y, width, height);
 
@@ -133,8 +133,10 @@ client.on('messageCreate', async (msg) => {
         y,
         singleImageWidth,
         singleImageHeight,
-        selectedImages[i].name
+        selectedImages[i].name,
+        selectedImages[i].series 
       );
+    
 
       cardsData.push(cardData);
     }
@@ -183,6 +185,8 @@ client.on('messageCreate', async (msg) => {
       const userId = interaction.user.id;
       const cardName = selectedImages[parseInt(buttonId) - 1].name;
       const cardUrl = selectedImages[parseInt(buttonId) - 1].url;
+      const series = selectedImages[parseInt(buttonId) - 1].series; // Get the series property
+    
     
      // Check if the user exists in the players table
       const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
@@ -204,12 +208,14 @@ client.on('messageCreate', async (msg) => {
               if (cardErr) {
                 console.error('Error checking card in database:', cardErr.message);
               } else {
+                console.log('Series:', series); // Dodaj to, aby sprawdzić wartość series przed wywołaniem funkcji
+
                 // Add card to the database
-                addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode);
+                addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series);
     
                 try {
                   await interaction.deferUpdate();
-                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` has been added to your inventory!`);
+                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` has been added to your inventory!`);
     
                   // Check if it's the first card of this type
                   if (cardResults.length === 0) {
@@ -323,7 +329,7 @@ client.on('messageCreate', async (msg) => {
                     .addFields(
                         results.map((card, index) => ({
                             name: ` `,
-                            value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  `,    
+                            value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  •  \`${card.series}\``,
                         }))
                     );
 
@@ -552,9 +558,14 @@ function addPlayerToDatabase(userId, username) {
 }
 
 function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode) {
-  const query = 
-  'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, date_added) VALUES (?, ?, ?, ?, ?, NOW())';
-  const values = [userId, cardName, cardUrl, cardPrint, cardCode];
+  // Find the image object with the matching name in imageUrls
+  const imageObject = imageUrls.find((image) => image.name === cardName);
+
+  // Check if the image object and its series property exist
+  const series = imageObject && imageObject.series ? imageObject.series : 'default_series';
+
+  const query = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, date_added) VALUES (?, ?, ?, ?, ?, ?, NOW())';
+  const values = [userId, cardName, cardUrl, cardPrint, cardCode, series];
 
   connection.query(query, values, (err, results) => {
     if (err) {

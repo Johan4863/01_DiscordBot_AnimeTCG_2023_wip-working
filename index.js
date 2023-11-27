@@ -19,6 +19,9 @@ const itemEmojis = {
   coins: '💰',
   common_ticket: '🎫',
 };
+const itemPrices = {
+  common_ticket: 10,
+};
 
 // Client
 const client = new Client({
@@ -588,18 +591,106 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         if (fetchResults.length === 0) {
           msg.reply('You have no items in your inventory.');
         } else {
-          // Build a message with items and emojis
-          const itemsMessage = fetchResults.map((item) => {
-            const itemType = item.item_type;
-            const itemAmount = item.item_amount;
-            const emoji = itemEmojis[itemType] || '❓'; // Use a default emoji if not found in itemEmojis
-  
-            return `${emoji} ${itemType}: ${itemAmount}`;
-          }).join('\n');
-  
-          msg.reply(`Your items:\n${itemsMessage}`);
+          // Build an embedded message with items and emojis
+          const embed = new EmbedBuilder()
+            .setColor('#0099ff')
+            .setTitle(`${msg.author.username}'s Inventory`)
+            .setDescription('Here are your items:')
+            .addFields(
+              fetchResults.map((item) => ({
+                name: `${itemEmojis[item.item_type] || '❓'} ${item.item_type}`,
+                value: `Amount: ${item.item_amount}`,
+                inline: true,
+              }))
+            )
+          
+          msg.reply({ embeds: [embed] });
         }
       }
+    });
+  } else if (msg.content === '!shop') {
+    const embed = new EmbedBuilder()
+      .setColor('#0099ff')
+      .setTitle('Shop')
+      .setDescription('Welcome to the shop! Here is our current offer:')
+      .addFields(
+        Object.entries(itemPrices).map(([item, price]) => ({
+          name: `${itemEmojis[item] || '❓'} ${item}`,
+          value: `Price: ${price} coins`,
+          inline: true,
+        }))
+      )
+  
+    msg.reply({ embeds: [embed] });
+  } else if (msg.content.startsWith('!buy')) {
+    const userId = msg.author.id;
+    const args = msg.content.split(' ');
+    const quantity = parseInt(args[1], 10) || 1; // Default to 1 if quantity is not specified
+    const itemName = args.slice(2).join(' '); // Combine remaining arguments as the item name
+  
+    if (!itemName || !itemPrices[itemName]) {
+      msg.reply('Invalid item name or item not available for purchase.');
+      return;
+    }
+  
+    const itemPrice = itemPrices[itemName] * quantity;
+  
+    // Check if the user has enough coins to make the purchase
+    const checkCoinsQuery = 'SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?';
+    const checkCoinsValues = [userId, 'coins'];
+  
+    connection.query(checkCoinsQuery, checkCoinsValues, (checkCoinsErr, checkCoinsResults) => {
+      if (checkCoinsErr) {
+        console.error('Error checking user coins:', checkCoinsErr.message);
+        return;
+      }
+  
+      const userCoins = checkCoinsResults[0] ? checkCoinsResults[0].item_amount : 0;
+  
+      if (userCoins < itemPrice) {
+        msg.reply('You don\'t have enough coins to make this purchase.');
+        return;
+      }
+  
+      // Proceed with the purchase
+      const updateCoinsQuery = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ?';
+      const updateCoinsValues = [itemPrice, userId, 'coins'];
+  
+      const addPurchasedItemQuery = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
+      const addPurchasedItemValues = [userId, itemName, quantity];
+  
+      connection.beginTransaction((transactionErr) => {
+        if (transactionErr) {
+          console.error('Error starting transaction:', transactionErr.message);
+          return;
+        }
+  
+        connection.query(updateCoinsQuery, updateCoinsValues, (updateCoinsErr, updateCoinsResults) => {
+          if (updateCoinsErr) {
+            return connection.rollback(() => {
+              console.error('Error updating user coins:', updateCoinsErr.message);
+            });
+          }
+  
+          connection.query(addPurchasedItemQuery, addPurchasedItemValues, (addItemErr, addItemResults) => {
+            if (addItemErr) {
+              return connection.rollback(() => {
+                console.error('Error adding purchased item:', addItemErr.message);
+              });
+            }
+  
+            connection.commit((commitErr) => {
+              if (commitErr) {
+                return connection.rollback(() => {
+                  console.error('Error committing transaction:', commitErr.message);
+                });
+              }
+  
+              msg.reply(`You have successfully purchased ${quantity}x ${itemEmojis[itemName] || '❓'} ${itemName} for ${itemPrice} coins!`);
+            });
+          });
+        });
+      });
     });
   }
   

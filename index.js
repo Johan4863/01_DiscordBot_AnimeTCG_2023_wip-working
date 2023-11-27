@@ -15,6 +15,10 @@ const existingCodes = {};
 const cardCounts = {};
 const cooldowns = new Map();
 const allowedUserIds = process.env.DEVS;
+const itemEmojis = {
+  coins: '💰',
+  common_ticket: '🎫',
+};
 
 // Client
 const client = new Client({
@@ -57,6 +61,8 @@ client.on('messageCreate', async (msg) => {
     '!inventory': ['!cards', '!cardinv', '!inv', '!i'], 
     '!register': ['!signup'], 
     '!helpme': ['!commands', '!h'], 
+    '!view': ['!v', '!show'],
+    '!remove': ['!burn', '!destroy', '!rm'], 
   };
 
   // Check if the received command is an alias, and replace it with the actual command
@@ -427,7 +433,9 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         { name: '!register', value: 'Register as a player.', inline: true },
         { name: '!addimage <name> <url>', value: 'Add a new image to the card pool (admin only).', inline: true },
         { name: '!helpme', value: 'Display this help message.', inline: true },
-        { name: '!view <code>', value: 'View a card by its code.', inline: true }
+        { name: '!view <code>', value: 'View a card by its code.', inline: true },
+        { name: '!remove <code>', value: 'Remove a card by its code.', inline: true },
+        { name: '!items', value: 'View all items in your inventory.', inline: true },
       );
 
     msg.reply({ embeds: [embed] });
@@ -520,11 +528,11 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
   } else if (msg.content.startsWith('!remove')) {
     const userId = msg.author.id;
     const codeToRemove = msg.content.slice('!remove'.length).trim();
-
+  
     // Check if the user exists in the players table
     const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
     const checkUserValues = [userId];
-
+  
     connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
       if (err) {
         console.error('Error checking user in database:', err.message);
@@ -536,7 +544,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
           // User exists, check if a card with the given code exists in their inventory
           const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
           const checkCardValues = [userId, codeToRemove];
-
+  
           connection.query(checkCardQuery, checkCardValues, async (cardErr, cardResults) => {
             if (cardErr) {
               console.error('Error checking card in database:', cardErr.message);
@@ -547,13 +555,17 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
                 // Card found, delete it from the database
                 const deleteCardQuery = 'DELETE FROM card_inventory WHERE user_id = ? AND card_code = ?';
                 const deleteCardValues = [userId, codeToRemove];
-
-                connection.query(deleteCardQuery, deleteCardValues, (deleteErr, deleteResults) => {
+  
+                connection.query(deleteCardQuery, deleteCardValues, async (deleteErr, deleteResults) => {
                   if (deleteErr) {
                     console.error('Error deleting card from the database:', deleteErr.message);
                   } else {
                     console.log('Card deleted from the database:', deleteResults);
-                    msg.reply(`Card with code ${codeToRemove} has been removed from your inventory.`);
+  
+                    // Add items to the user_items table
+                    await addItemsToUser(userId);
+  
+                    msg.reply(`Card with code ${codeToRemove} has been removed from your inventory, and you received items.`);
                   }
                 });
               }
@@ -562,8 +574,66 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         }
       }
     });
+  } else if (msg.content === '!items') {
+    const userId = msg.author.id;
+  
+    // Fetch items from user_items table
+    const fetchItemsQuery = 'SELECT * FROM user_items WHERE user_id = ?';
+    const fetchItemsValues = [userId];
+  
+    connection.query(fetchItemsQuery, fetchItemsValues, (fetchErr, fetchResults) => {
+      if (fetchErr) {
+        console.error('Error fetching items from the database:', fetchErr.message);
+      } else {
+        if (fetchResults.length === 0) {
+          msg.reply('You have no items in your inventory.');
+        } else {
+          // Build a message with items and emojis
+          const itemsMessage = fetchResults.map((item) => {
+            const itemType = item.item_type;
+            const itemAmount = item.item_amount;
+            const emoji = itemEmojis[itemType] || '❓'; // Use a default emoji if not found in itemEmojis
+  
+            return `${emoji} ${itemType}: ${itemAmount}`;
+          }).join('\n');
+  
+          msg.reply(`Your items:\n${itemsMessage}`);
+        }
+      }
+    });
   }
+  
 });
+
+// Function to add items to the user_items table
+async function addItemsToUser(userId) {
+  const coinsAmount = Math.floor(Math.random() * (50 - 10 + 1)) + 10;
+  const commonTicketAmount = Math.random() < 0.5 ? 1 : 0; // 50% chance of getting a common ticket
+
+  // Update coins in user_items
+  const updateCoinsQuery = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
+  const updateCoinsValues = [userId, 'coins', coinsAmount];
+
+  // Update common ticket in user_items
+  const updateCommonTicketQuery = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
+  const updateCommonTicketValues = [userId, 'common_ticket', commonTicketAmount];
+
+  connection.query(updateCoinsQuery, updateCoinsValues, (coinsErr, coinsResults) => {
+    if (coinsErr) {
+      console.error('Error updating coins in user_items:', coinsErr.message);
+    } else {
+      console.log('Coins updated in user_items:', coinsResults);
+    }
+  });
+
+  connection.query(updateCommonTicketQuery, updateCommonTicketValues, (ticketErr, ticketResults) => {
+    if (ticketErr) {
+      console.error('Error updating common ticket in user_items:', ticketErr.message);
+    } else {
+      console.log('Common ticket updated in user_items:', ticketResults);
+    }
+  });
+}
 
 // Start of functions
 const getRandomImages = () => {

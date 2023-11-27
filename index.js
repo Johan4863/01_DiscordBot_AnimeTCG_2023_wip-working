@@ -517,6 +517,51 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         }
       }
     });
+  } else if (msg.content.startsWith('!remove')) {
+    const userId = msg.author.id;
+    const codeToRemove = msg.content.slice('!remove'.length).trim();
+
+    // Check if the user exists in the players table
+    const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
+    const checkUserValues = [userId];
+
+    connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
+      if (err) {
+        console.error('Error checking user in database:', err.message);
+      } else {
+        if (userResults.length === 0) {
+          // User does not exist, inform them to use the !register command
+          msg.reply('You need to register first! Use the command `!register`.');
+        } else {
+          // User exists, check if a card with the given code exists in their inventory
+          const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
+          const checkCardValues = [userId, codeToRemove];
+
+          connection.query(checkCardQuery, checkCardValues, async (cardErr, cardResults) => {
+            if (cardErr) {
+              console.error('Error checking card in database:', cardErr.message);
+            } else {
+              if (cardResults.length === 0) {
+                msg.reply(`Card with code ${codeToRemove} not found in your inventory.`);
+              } else {
+                // Card found, delete it from the database
+                const deleteCardQuery = 'DELETE FROM card_inventory WHERE user_id = ? AND card_code = ?';
+                const deleteCardValues = [userId, codeToRemove];
+
+                connection.query(deleteCardQuery, deleteCardValues, (deleteErr, deleteResults) => {
+                  if (deleteErr) {
+                    console.error('Error deleting card from the database:', deleteErr.message);
+                  } else {
+                    console.log('Card deleted from the database:', deleteResults);
+                    msg.reply(`Card with code ${codeToRemove} has been removed from your inventory.`);
+                  }
+                });
+              }
+            }
+          });
+        }
+      }
+    });
   }
 });
 

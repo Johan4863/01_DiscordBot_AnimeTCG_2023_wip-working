@@ -1,14 +1,17 @@
 // Import
-const { Client, GatewayIntentBits, EmbedBuilder, MessageActionRow, MessageButton } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const mysql = require('mysql2');
+const util = require('util');
 const imageUrlsPath = './imageUrls.json';
 
 // dotenv
 require('dotenv').config();
 
 // Variables
+let existingPrints = {};
+let latestPrints = {};
 let imageUrls;
 let lastGeneratedCode = '';
 const existingCodes = {};
@@ -34,12 +37,15 @@ const client = new Client({
 });
 
 // Database connection
-const connection = mysql.createConnection({
+const connection = mysql.createPool({
+    connectionLimit: 10,
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: "",
     database: process.env.DB_NAME,
 });
+
+const query = util.promisify(connection.query).bind(connection);
 
 try {
   const imageUrlsData = fs.readFileSync(imageUrlsPath, 'utf8');
@@ -49,9 +55,100 @@ try {
   process.exit(1);
 }
 
+
+const loadLatestPrintsFromDatabase = async () => {
+  try {
+    const selectMaxPrintsQuery = 'SELECT card_name, MAX(latest_print) AS max_print FROM card_info GROUP BY card_name';
+    const maxPrintResults = await query(selectMaxPrintsQuery);
+
+    const maxPrints = {};
+    maxPrintResults.forEach((row) => {
+      maxPrints[row.card_name] = row.max_print;
+    });
+
+    //console.log('Latest prints loaded from the database:', maxPrints);
+    return maxPrints;
+  } catch (error) {
+    console.error('Error loading latest prints from the database:', error.message);
+    return {};
+  }
+};
+
+const loadExistingPrintsFromDatabase = async () => {
+  try {
+    const latestPrints = await loadLatestPrintsFromDatabase();
+    existingPrints = { ...latestPrints };
+    //console.log('Existing prints loaded from the latest prints:', existingPrints);
+
+    // Wczytaj liczniki z bazy danych
+    const loadCountsQuery = 'SELECT card_name, latest_print FROM card_info';
+    const counts = await query(loadCountsQuery);
+    counts.forEach((row) => {
+      cardCounts[row.card_name] = row.latest_print;
+    });
+
+    //console.log('Card counts loaded from the database:', cardCounts);
+  } catch (error) {
+    console.error('Error loading existing prints from the latest prints:', error.message);
+  }
+};
+
+
+const updateLatestPrintInDatabase = async (cardName, latestPrint) => {
+  try {
+    //console.log(`Attempting to update latest print in the database for ${cardName} to ${latestPrint}`);
+
+    // Sprawdź, czy latestPrint jest liczbą lub stringiem
+    if (typeof latestPrint !== 'string' && typeof latestPrint !== 'number') {
+      console.error(`Error updating latest print in database for ${cardName}: latestPrint must be a string or number.`);
+      return;
+    }
+
+    const updateQuery = 'UPDATE card_info SET latest_print = ? WHERE card_name = ?';
+    const [updateResult] = await connection.execute(updateQuery, [latestPrint, cardName]);
+
+    console.log(`Card: ${cardName}, Latest Print: ${latestPrint}`);
+    console.log('Update result:', updateResult);
+
+    if (updateResult.affectedRows > 0) {
+      console.log(`Updated latest print in the database for ${cardName}.`);
+    } else {
+      console.log(`Failed to update latest print in the database for ${cardName}. No rows affected.`);
+    }
+  } catch (error) {
+    //console.error(`Error updating latest print in database for ${cardName}:`, error.message);
+    //console.error('Error stack:', error.stack);
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Ready event
-client.on('ready', () => {
+client.on('ready', async () => {
   console.log(`Logged in as ${client.user.username}!`);
+
+  // Load latest prints from the database
+  const loadedLatestPrints = await loadLatestPrintsFromDatabase();
+  //console.log('Latest prints loaded from the database:', loadedLatestPrints);
+
+  // Load existing prints from the database
+  loadExistingPrintsFromDatabase();
 });
 
 // MessageCreate event
@@ -107,9 +204,10 @@ client.on('messageCreate', async (msg) => {
         cardCounts[cardName]++;
       }
   
-      const cardPrint = cardCounts[cardName];
-      const cardCode = await generateUniqueCode();
-
+     const cardPrint = cardCounts[cardName];
+     const cardCode = await generateUniqueCode();
+     
+    
       const textBgHeight = 60;
       ctx.fillStyle = 'white';
       ctx.fillRect(x, y + height, width, textBgHeight);
@@ -148,6 +246,9 @@ client.on('messageCreate', async (msg) => {
     
 
       cardsData.push(cardData);
+      //console.log('Latest prints before update:', latestPrints);
+       // Update the latest print for this card in the database
+       updateLatestPrintInDatabase(selectedImages[i].name, cardData.cardPrint);
     }
 
     const buffer = canvas.toBuffer();
@@ -623,76 +724,76 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
   
     msg.reply({ embeds: [embed] });
   } else if (msg.content.startsWith('!buy')) {
-    const userId = msg.author.id;
-    const args = msg.content.split(' ');
-    const quantity = parseInt(args[1], 10) || 1; // Default to 1 if quantity is not specified
-    const itemName = args.slice(2).join(' '); // Combine remaining arguments as the item name
-  
-    if (!itemName || !itemPrices[itemName]) {
-      msg.reply('Invalid item name or item not available for purchase.');
+  const userId = msg.author.id;
+  const args = msg.content.split(' ');
+  const quantity = parseInt(args[1], 10) || 1; // Default to 1 if quantity is not specified
+  const itemName = args.slice(2).join(' '); // Combine remaining arguments as the item name
+
+  if (!itemName || !itemPrices[itemName]) {
+    msg.reply('Invalid item name or item not available for purchase.');
+    return;
+  }
+
+  const itemPrice = itemPrices[itemName] * quantity;
+
+  // Check if the user has enough coins to make the purchase
+  const checkCoinsQuery = 'SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?';
+  const checkCoinsValues = [userId, 'coins'];
+
+  connection.query(checkCoinsQuery, checkCoinsValues, (checkCoinsErr, checkCoinsResults) => {
+    if (checkCoinsErr) {
+      console.error('Error checking user coins:', checkCoinsErr.message);
       return;
     }
-  
-    const itemPrice = itemPrices[itemName] * quantity;
-  
-    // Check if the user has enough coins to make the purchase
-    const checkCoinsQuery = 'SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?';
-    const checkCoinsValues = [userId, 'coins'];
-  
-    connection.query(checkCoinsQuery, checkCoinsValues, (checkCoinsErr, checkCoinsResults) => {
-      if (checkCoinsErr) {
-        console.error('Error checking user coins:', checkCoinsErr.message);
+
+    const userCoins = checkCoinsResults[0] ? checkCoinsResults[0].item_amount : 0;
+
+    if (userCoins < itemPrice) {
+      msg.reply('You don\'t have enough coins to make this purchase.');
+      return;
+    }
+
+    // Proceed with the purchase
+    const updateCoinsQuery = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ?';
+    const updateCoinsValues = [itemPrice, userId, 'coins'];
+
+    const addPurchasedItemQuery = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
+    const addPurchasedItemValues = [userId, itemName, quantity];
+
+    connection.beginTransaction((transactionErr) => {
+      if (transactionErr) {
+        console.error('Error starting transaction:', transactionErr.message);
         return;
       }
-  
-      const userCoins = checkCoinsResults[0] ? checkCoinsResults[0].item_amount : 0;
-  
-      if (userCoins < itemPrice) {
-        msg.reply('You don\'t have enough coins to make this purchase.');
-        return;
-      }
-  
-      // Proceed with the purchase
-      const updateCoinsQuery = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ?';
-      const updateCoinsValues = [itemPrice, userId, 'coins'];
-  
-      const addPurchasedItemQuery = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
-      const addPurchasedItemValues = [userId, itemName, quantity];
-  
-      connection.beginTransaction((transactionErr) => {
-        if (transactionErr) {
-          console.error('Error starting transaction:', transactionErr.message);
-          return;
+
+      connection.query(updateCoinsQuery, updateCoinsValues, (updateCoinsErr, updateCoinsResults) => {
+        if (updateCoinsErr) {
+          return connection.rollback(() => {
+            console.error('Error updating user coins:', updateCoinsErr.message);
+          });
         }
-  
-        connection.query(updateCoinsQuery, updateCoinsValues, (updateCoinsErr, updateCoinsResults) => {
-          if (updateCoinsErr) {
+
+        connection.query(addPurchasedItemQuery, addPurchasedItemValues, (addItemErr, addItemResults) => {
+          if (addItemErr) {
             return connection.rollback(() => {
-              console.error('Error updating user coins:', updateCoinsErr.message);
+              console.error('Error adding purchased item:', addItemErr.message);
             });
           }
-  
-          connection.query(addPurchasedItemQuery, addPurchasedItemValues, (addItemErr, addItemResults) => {
-            if (addItemErr) {
+
+          connection.commit((commitErr) => {
+            if (commitErr) {
               return connection.rollback(() => {
-                console.error('Error adding purchased item:', addItemErr.message);
+                console.error('Error committing transaction:', commitErr.message);
               });
             }
-  
-            connection.commit((commitErr) => {
-              if (commitErr) {
-                return connection.rollback(() => {
-                  console.error('Error committing transaction:', commitErr.message);
-                });
-              }
-  
-              msg.reply(`You have successfully purchased ${quantity}x ${itemEmojis[itemName] || '❓'} ${itemName} for ${itemPrice} coins!`);
-            });
+
+            msg.reply(`You have successfully purchased ${quantity}x ${itemEmojis[itemName] || '❓'} ${itemName} for ${itemPrice} coins!`);
           });
         });
       });
     });
-  }
+  });
+}
   
 });
 
@@ -802,7 +903,7 @@ async function deleteOldCodes() {
             console.error('Error deleting old codes from the database:', deleteErr.message);
             reject(deleteErr);
           } else {
-            console.log('Old codes successfully deleted from the database:', deleteResults);
+            //console.log('Old codes successfully deleted from the database:', deleteResults);
             resolve();
           }
         });
@@ -853,7 +954,7 @@ async function generateUniqueCode() {
                 console.error('Error inserting the newly generated code into the database:', err.message);
                 reject(err);
               } else {
-                console.log('The newly generated code has been successfully inserted into the database:', results);
+                //console.log('The newly generated code has been successfully inserted into the database:', results);
                 // Remove old codes from the database after adding three new codes
                 await deleteOldCodes();
                 resolve(nextCode);

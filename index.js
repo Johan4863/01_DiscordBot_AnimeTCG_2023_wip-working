@@ -21,9 +21,16 @@ const allowedUserIds = process.env.DEVS;
 const itemEmojis = {
   coins: '💰',
   common_ticket: '🎫',
+  scroll:'📜',
 };
 const itemPrices = {
-  common_ticket: 10,
+  common_ticket: 1,
+  scroll: 2
+};
+
+const shopItems = {
+  common_ticket: { cost: 1, itemType: 'common_ticket' },
+  scroll: { cost: 2, itemType: 'scroll' },
 };
 
 // Client
@@ -120,24 +127,6 @@ const updateLatestPrintInDatabase = async (cardName, latestPrint) => {
     //console.error('Error stack:', error.stack);
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Ready event
 client.on('ready', async () => {
@@ -353,24 +342,27 @@ client.on('messageCreate', async (msg) => {
     });
   } else if (msg.content.startsWith('!addimage') && allowedUserIds.includes(msg.author.id)) {
     const args = msg.content.slice('!addimage'.length).trim().split(' ');
-
+  
     if (args.length === 3) {
       const name = args[0];
       const url = args[1];
       const series = args[2];
-
+  
       // Add new image to the imageUrls array
       imageUrls.push({ name, url, series });
-
+  
       // Save changes to the file
       saveUpdatedImageUrls();
-
+  
+      // Add card info to the database
+      addCardInfoToDatabase(name, 0); // latestPrint set to 0 by default
+  
       msg.reply(`Image "${name}" added successfully.`);
       console.log('New image was added');
     } else {
       msg.reply('Invalid command format. Use !addimage <name> <url> <series>.');
     }
-
+  
     return;
   } else if (msg.content.startsWith('!inventory')) {
     const userId = msg.author.id;
@@ -721,81 +713,187 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
           inline: true,
         }))
       )
+      .setImage('https://i.imgur.com/cIYuiG2.jpeg') // Dodaj ikonę sklepu
+      .setFooter({text:'Happy shopping!'})
+      .setTimestamp();
   
     msg.reply({ embeds: [embed] });
   } else if (msg.content.startsWith('!buy')) {
-  const userId = msg.author.id;
-  const args = msg.content.split(' ');
-  const quantity = parseInt(args[1], 10) || 1; // Default to 1 if quantity is not specified
-  const itemName = args.slice(2).join(' '); // Combine remaining arguments as the item name
+    const args = msg.content.split(' ');
+    if (args.length !== 2) {
+      return msg.reply('Invalid command. Usage: !buy <item_name>');
+    }
 
-  if (!itemName || !itemPrices[itemName]) {
-    msg.reply('Invalid item name or item not available for purchase.');
-    return;
+    const itemName = args[1].toLowerCase();
+    const item = shopItems[itemName];
+
+    if (!item) {
+      return msg.reply('Invalid item. Check available items using !shop.');
+    }
+
+    // Assuming you have a function to get user data from the database
+    const userData = await getUserData(msg.author.id);
+
+    // Check if the user has enough coins or common tickets to make the purchase
+    if (item.cost > userData.coins) {
+      return msg.reply('You don\'t have enough coins to buy this item.');
+    }
+
+    if (item.itemType === 'scroll' && item.cost > userData.common_tickets) {
+      return msg.reply('You don\'t have enough common tickets to buy this item.');
+    }
+
+    // Deduct the cost from the user's inventory
+    await deductItemFromInventory(msg.author.id, 'coins', item.cost);
+    if (item.itemType === 'scroll') {
+      await deductItemFromInventory(msg.author.id, 'common_tickets', 1); // Deduct 1 common ticket
+    }
+
+    // Add the item to the user's inventory
+    await addItemToInventory(msg.author.id, item.itemType, 1);
+
+    msg.reply(`You have successfully bought ${itemName}!`);
+  } else if (msg.content.toLowerCase() === '!scroll') {
+    // Check if the user has scrolls
+    const userId = msg.author.id;
+    const scrollAmount = await getUserItemsAmount(userId, 'scroll');
+
+    if (scrollAmount < 1) {
+      msg.reply('You don\'t have any scrolls.');
+      return;
+    }
+
+    // Generate a random color
+    const randomColor = getRandomColor();
+
+    // Create a canvas with a colored square
+    const canvas = createCanvas(100, 100);
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = randomColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Convert canvas to buffer
+    const buffer = canvas.toBuffer('image/png');
+
+    // Send the buffer as an attachment
+    msg.reply({
+      files: [{
+        attachment: buffer,
+        name: 'color.png',
+      }],
+    });
+
+    // Update user's inventory (subtract 1 scroll)
+    await updateUserItemsAmount(userId, 'scroll', scrollAmount - 1);
   }
+});
 
-  const itemPrice = itemPrices[itemName] * quantity;
-
-  // Check if the user has enough coins to make the purchase
-  const checkCoinsQuery = 'SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?';
-  const checkCoinsValues = [userId, 'coins'];
-
-  connection.query(checkCoinsQuery, checkCoinsValues, (checkCoinsErr, checkCoinsResults) => {
-    if (checkCoinsErr) {
-      console.error('Error checking user coins:', checkCoinsErr.message);
-      return;
-    }
-
-    const userCoins = checkCoinsResults[0] ? checkCoinsResults[0].item_amount : 0;
-
-    if (userCoins < itemPrice) {
-      msg.reply('You don\'t have enough coins to make this purchase.');
-      return;
-    }
-
-    // Proceed with the purchase
-    const updateCoinsQuery = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ?';
-    const updateCoinsValues = [itemPrice, userId, 'coins'];
-
-    const addPurchasedItemQuery = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
-    const addPurchasedItemValues = [userId, itemName, quantity];
-
-    connection.beginTransaction((transactionErr) => {
-      if (transactionErr) {
-        console.error('Error starting transaction:', transactionErr.message);
-        return;
+async function getUserItemsAmount(userId, itemType) {
+  return new Promise((resolve, reject) => {
+    connection.query('SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?', [userId, itemType], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        const itemAmount = results.length > 0 ? results[0].item_amount : 0;
+        resolve(itemAmount);
       }
-
-      connection.query(updateCoinsQuery, updateCoinsValues, (updateCoinsErr, updateCoinsResults) => {
-        if (updateCoinsErr) {
-          return connection.rollback(() => {
-            console.error('Error updating user coins:', updateCoinsErr.message);
-          });
-        }
-
-        connection.query(addPurchasedItemQuery, addPurchasedItemValues, (addItemErr, addItemResults) => {
-          if (addItemErr) {
-            return connection.rollback(() => {
-              console.error('Error adding purchased item:', addItemErr.message);
-            });
-          }
-
-          connection.commit((commitErr) => {
-            if (commitErr) {
-              return connection.rollback(() => {
-                console.error('Error committing transaction:', commitErr.message);
-              });
-            }
-
-            msg.reply(`You have successfully purchased ${quantity}x ${itemEmojis[itemName] || '❓'} ${itemName} for ${itemPrice} coins!`);
-          });
-        });
-      });
     });
   });
 }
-  
-});
+
+function addCardInfoToDatabase(cardName, latestPrint) {
+  const query = 'INSERT INTO card_info (card_name, latest_print) VALUES (?, ?)';
+  const values = [cardName, latestPrint];
+
+  connection.query(query, values, (err, results) => {
+    if (err) {
+      console.error('Error adding card info to database:', err.message);
+    } else {
+      console.log('Card info added to database:', results);
+    }
+  });
+}
+
+async function updateUserItemsAmount(userId, itemType, newAmount) {
+  return new Promise((resolve, reject) => {
+    connection.query('INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = VALUES(item_amount)', [userId, itemType, newAmount], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+}
+
+async function removeUserItems(userId, itemType, amount) {
+  return new Promise((resolve, reject) => {
+    const query = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ? AND item_amount >= ?';
+    const values = [amount, userId, itemType, amount];
+
+    connection.query(query, values, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+}
+
+// Function to generate a random color in hex format
+function getRandomColor() {
+  const letters = '0123456789ABCDEF';
+  let color = '#';
+  for (let i = 0; i < 6; i++) {
+    color += letters[Math.floor(Math.random() * 16)];
+  }
+  return color;
+}
+
+async function getUserData(userId) {
+  return new Promise((resolve, reject) => {
+    const query = 'SELECT * FROM user_items WHERE user_id = ?';
+    connection.query(query, [userId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        const userData = {};
+        results.forEach((row) => {
+          userData[row.item_type] = row.item_amount;
+        });
+        resolve(userData);
+      }
+    });
+  });
+}
+
+async function deductItemFromInventory(userId, itemType, amount) {
+  return new Promise((resolve, reject) => {
+    const query = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ?';
+    connection.query(query, [amount, userId, itemType], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+}
+
+async function addItemToInventory(userId, itemType, amount) {
+  return new Promise((resolve, reject) => {
+    const query = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
+    connection.query(query, [userId, itemType, amount], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+}
 
 // Function to add items to the user_items table
 async function addItemsToUser(userId) {

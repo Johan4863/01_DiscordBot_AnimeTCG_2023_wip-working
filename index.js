@@ -218,6 +218,8 @@ client.on('messageCreate', async (msg) => {
     const spacing = 50;
     const topMargin = 20;
     const cardsData = [];
+    const elements = ['fire', 'earth', 'water', 'metal']; // Dodane
+
 
     for (let i = 0; i < selectedImages.length; i++) {
       const x = i * (singleImageWidth + spacing) + spacing;
@@ -234,7 +236,13 @@ client.on('messageCreate', async (msg) => {
       );
     
 
-      cardsData.push(cardData);
+      const element = getRandomElementWithChances(elements, [30, 30, 30, 10]); // Dodane
+      console.log('Element before getEmojiForElement:', element);
+      console.log('getEmojiForElement(element):', getEmojiForElement(element));
+      cardsData.push({ ...cardData, element });
+      //console.log('Element before getEmojiForElement:', element); // Dodane
+      //console.log('getEmojiForElement(element):', getEmojiForElement(element)); // Dodane
+
       //console.log('Latest prints before update:', latestPrints);
        // Update the latest print for this card in the database
        updateLatestPrintInDatabase(selectedImages[i].name, cardData.cardPrint);
@@ -278,15 +286,16 @@ client.on('messageCreate', async (msg) => {
     collector.on('collect', async (interaction) => {
       const buttonId = interaction.customId;
       const cardData = cardsData[parseInt(buttonId) - 1];
-      const { cardPrint, cardCode } = cardData;
+      const { cardPrint, cardCode, element } = cardData; // Dodane
     
       // Add card information to the database
       const userId = interaction.user.id;
       const cardName = selectedImages[parseInt(buttonId) - 1].name;
       const cardUrl = selectedImages[parseInt(buttonId) - 1].url;
       const series = selectedImages[parseInt(buttonId) - 1].series; // Get the series property
-    
-    
+      
+
+      const elementString = element ? getEmojiForElement(element) : 'unknown'; // Ustawia domyślną wartość, jeśli element nie jest zdefiniowany
      // Check if the user exists in the players table
       const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
       const checkUserValues = [userId];
@@ -310,11 +319,13 @@ client.on('messageCreate', async (msg) => {
                 console.log('Series:', series); // Dodaj to, aby sprawdzić wartość series przed wywołaniem funkcji
 
                 // Add card to the database
-                addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series);
+                addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element); // Dodane
     
                 try {
                   await interaction.deferUpdate();
-                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` has been added to your inventory!`);
+                  const emojiForElement = getEmojiForElement(element);
+                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` of ${emojiForElement} element has been added to your inventory!`);
+
     
                   // Check if it's the first card of this type
                   if (cardResults.length === 0) {
@@ -420,7 +431,7 @@ client.on('messageCreate', async (msg) => {
                 }
 
                 let description = `You have ${totalCards} cards.`;
-                
+
                 if (cardName) {
                     description = `You have ${totalCards} cards of type "${cardName}".`;
                 }
@@ -432,7 +443,7 @@ client.on('messageCreate', async (msg) => {
                     .addFields(
                         results.map((card, index) => ({
                             name: ` `,
-                            value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  •  \`${card.series}\``,
+                            value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  •  \`${card.series}\`  •  Element: ${card.element} ${getEmojiForElement(card.element)}`,
                         }))
                     );
 
@@ -789,6 +800,20 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
   }
 });
 
+function getEmojiForElement(element) {
+  switch (element) {
+    case 'fire':
+      return '🔥';
+    case 'earth':
+      return '🗿';
+    case 'water':
+      return '💧';
+    case 'metal':
+      return '⚙️';
+    default:
+      return '';
+  }
+}
 async function getUserItemsAmount(userId, itemType) {
   return new Promise((resolve, reject) => {
     connection.query('SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?', [userId, itemType], (err, results) => {
@@ -800,6 +825,22 @@ async function getUserItemsAmount(userId, itemType) {
       }
     });
   });
+}
+
+function getRandomElementWithChances(elements, chances) {
+  const totalChances = chances.reduce((acc, chance) => acc + chance, 0);
+  const randomNum = Math.floor(Math.random() * totalChances);
+  
+  let cumulativeChances = 0;
+  for (let i = 0; i < elements.length; i++) {
+      cumulativeChances += chances[i];
+      if (randomNum < cumulativeChances) {
+          return elements[i];
+      }
+  }
+
+  // W razie jakiegoś błędu zwróć domyślny element
+  return elements[0];
 }
 
 function addCardInfoToDatabase(cardName, latestPrint) {
@@ -963,24 +1004,35 @@ function addPlayerToDatabase(userId, username) {
   });
 }
 
-function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode) {
+function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element) {
   // Find the image object with the matching name in imageUrls
   const imageObject = imageUrls.find((image) => image.name === cardName);
 
   // Check if the image object and its series property exist
-  const series = imageObject && imageObject.series ? imageObject.series : 'default_series';
+  series = imageObject && imageObject.series ? imageObject.series : 'default_series';
 
-  const query = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, date_added) VALUES (?, ?, ?, ?, ?, ?, NOW())';
-  const values = [userId, cardName, cardUrl, cardPrint, cardCode, series];
+  const elements = ['fire', 'earth', 'water', 'metal'];
+
+  // Losowanie elementu z odpowiednimi szansami
+  const randomElement = element;
+  console.log(`Randomly assigned Element: ${randomElement}`);
+
+  const query = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())';
+  const values = [userId, cardName, cardUrl, cardPrint, cardCode, series, randomElement];
 
   connection.query(query, values, (err, results) => {
     if (err) {
       console.error('Error adding card to database:', err.message);
     } else {
       console.log('Card added to database:', results);
+
+      // Dodaj poniższy kod, aby wypisać informacje o dodanej karcie
+      console.log(`Added card - Name: ${cardName}, Print: ${cardPrint}, Code: ${cardCode}, Series: ${series}, Element: ${randomElement}`);
     }
   });
 }
+
+
 
 async function deleteOldCodes() {
   return new Promise((resolve, reject) => {

@@ -164,7 +164,7 @@ client.on('messageCreate', async (msg) => {
 
   if (msg.content === 'ping') {
     msg.channel.send('pong');
-  } else if (msg.content === '!lalo') {
+  } else if (msg.content === 'mlalo') {
     if (cooldowns.has(msg.author.id)) {
       const expirationTime = cooldowns.get(msg.author.id);
       const remainingTime = expirationTime - Date.now();
@@ -306,7 +306,7 @@ client.on('messageCreate', async (msg) => {
         } else {
           if (userResults.length === 0) {
             // User does not exist, inform them to use the !register command
-            await interaction.reply('You need to register first! Use the command `!register`.');
+            await interaction.reply('You need to register first! Use the command `mregister`.');
           } else {
             // User exists, check if they already have this card in their inventory
             const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_name = ?';
@@ -351,8 +351,8 @@ client.on('messageCreate', async (msg) => {
     collector.on('end', () => {
       reply.edit({ components: [] });
     });
-  } else if (msg.content.startsWith('!addimage') && allowedUserIds.includes(msg.author.id)) {
-    const args = msg.content.slice('!addimage'.length).trim().split(' ');
+  } else if (msg.content.startsWith('maddimage') && allowedUserIds.includes(msg.author.id)) {
+    const args = msg.content.slice('maddimage'.length).trim().split(' ');
   
     if (args.length === 3) {
       const name = args[0];
@@ -375,7 +375,7 @@ client.on('messageCreate', async (msg) => {
     }
   
     return;
-  } else if (msg.content.startsWith('!inventory')) {
+  } else if (msg.content.startsWith('minventory')) {
     const userId = msg.author.id;
     let currentPage = 1;
     const cardsPerPage = 10;
@@ -506,7 +506,7 @@ client.on('messageCreate', async (msg) => {
 
     // Initial inventory display
     sendInventory(currentPage);
-  } else if (msg.content === '!register') {
+  } else if (msg.content === 'mregister') {
     const userId = msg.author.id;
 
     // Check if the user exists in the players table
@@ -529,24 +529,24 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     }
   }
 });
-  } else if (msg.content === '!helpme') {
+  } else if (msg.content === 'mhelp') {
     const embed = new EmbedBuilder()
       .setColor('#0099ff')
       .setTitle('CardBot Commands')
       .setDescription('Here are the available commands:')
       .addFields(
-        { name: '!lalo', value: 'Summon 3 random cards.', inline: true },
-        { name: '!inventory', value: 'View your card inventory.', inline: true },
-        { name: '!register', value: 'Register as a player.', inline: true },
-        { name: '!addimage <name> <url>', value: 'Add a new image to the card pool (admin only).', inline: true },
-        { name: '!helpme', value: 'Display this help message.', inline: true },
-        { name: '!view <code>', value: 'View a card by its code.', inline: true },
-        { name: '!remove <code>', value: 'Remove a card by its code.', inline: true },
-        { name: '!items', value: 'View all items in your inventory.', inline: true },
+        { name: 'mlalo', value: 'Summon 3 random cards.', inline: true },
+        { name: 'minventory', value: 'View your card inventory.', inline: true },
+        { name: 'mregister', value: 'Register as a player.', inline: true },
+        { name: 'maddimage <name> <url>', value: 'Add a new image to the card pool (admin only).', inline: true },
+        { name: 'mhelpme', value: 'Display this help message.', inline: true },
+        { name: 'mview <code>', value: 'View a card by its code.', inline: true },
+        { name: 'mremove <code>', value: 'Remove a card by its code.', inline: true },
+        { name: 'mitems', value: 'View all items in your inventory.', inline: true },
       );
 
     msg.reply({ embeds: [embed] });
-  } else if (msg.content.startsWith('!view')) {
+  } else if (msg.content.startsWith('mview')) {
     const userId = msg.author.id;
     const codeToView = msg.content.slice('!view'.length).trim();
 
@@ -560,7 +560,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
       } else {
         if (userResults.length === 0) {
           // User does not exist, inform them to use the !register command
-          msg.reply('You need to register first! Use the command `!register`.');
+          msg.reply('You need to register first! Use the command `mregister`.');
         } else {
           // User exists, check if a card with the given code exists in their inventory
           const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
@@ -632,9 +632,9 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         }
       }
     });
-  } else if (msg.content.startsWith('!remove')) {
+  } else if (msg.content.startsWith('mremove')) {
     const userId = msg.author.id;
-    const codeToRemove = msg.content.slice('!remove'.length).trim();
+    const codeToRemove = msg.content.slice('mremove'.length).trim();
   
     // Check if the user exists in the players table
     const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
@@ -646,7 +646,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
       } else {
         if (userResults.length === 0) {
           // User does not exist, inform them to use the !register command
-          msg.reply('You need to register first! Use the command `!register`.');
+          msg.reply('You need to register first! Use the command `mregister`.');
         } else {
           // User exists, check if a card with the given code exists in their inventory
           const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
@@ -681,7 +681,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         }
       }
     });
-  } else if (msg.content === '!items') {
+  } else if (msg.content === 'mitems') {
     const userId = msg.author.id;
   
     // Fetch items from user_items table
@@ -712,7 +712,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         }
       }
     });
-  } else if (msg.content === '!shop') {
+  } else if (msg.content === 'mshop') {
     const embed = new EmbedBuilder()
       .setColor('#0099ff')
       .setTitle('Shop')
@@ -729,17 +729,17 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
       .setTimestamp();
   
     msg.reply({ embeds: [embed] });
-  } else if (msg.content.startsWith('!buy')) {
+  } else if (msg.content.startsWith('mbuy')) {
     const args = msg.content.split(' ');
     if (args.length !== 2) {
-      return msg.reply('Invalid command. Usage: !buy <item_name>');
+      return msg.reply('Invalid command. Usage: mbuy <item_name>');
     }
 
     const itemName = args[1].toLowerCase();
     const item = shopItems[itemName];
 
     if (!item) {
-      return msg.reply('Invalid item. Check available items using !shop.');
+      return msg.reply('Invalid item. Check available items using mshop.');
     }
 
     // Assuming you have a function to get user data from the database
@@ -764,7 +764,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     await addItemToInventory(msg.author.id, item.itemType, 1);
 
     msg.reply(`You have successfully bought ${itemName}!`);
-  } else if (msg.content.toLowerCase() === 'scroll') {
+  } else if (msg.content.toLowerCase() === 'mscroll') {
     // Check if the user has scrolls
     const userId = msg.author.id;
     const scrollAmount = await getUserItemsAmount(userId, 'scroll');
@@ -785,12 +785,12 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Convert canvas to buffer
-    const buffer = canvas.toBuffer('image/png');
+    const buffer1 = canvas.toBuffer('image/png');
 
     // Send the buffer as an attachment
     msg.reply({
       files: [{
-        attachment: buffer,
+        attachment: buffer1,
         name: 'color.png',
       }],
     });

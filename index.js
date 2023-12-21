@@ -164,7 +164,12 @@ client.on('messageCreate', async (msg) => {
 
   if (msg.content === 'ping') {
     msg.channel.send('pong');
-  } else if (msg.content === 'mlalo') {
+  } else if (msg.content === 'mlalo'&& !msg.interaction) {
+    if (msg.alreadyExecuted) return; // Dodaj tę linię
+
+    msg.alreadyExecuted = true; // Dodaj tę linię
+
+
     if (cooldowns.has(msg.author.id)) {
       const expirationTime = cooldowns.get(msg.author.id);
       const remainingTime = expirationTime - Date.now();
@@ -180,22 +185,20 @@ client.on('messageCreate', async (msg) => {
     const loadAndDrawImage = async (imageUrl, x, y, width, height, cardName, series) => {
       const image = await loadImage(imageUrl);
       ctx.drawImage(image, x, y, width, height);
-
-       // Load and draw the overlay image
+    
+      // Load and draw the overlay image
       const overlayImageUrl = './Frame01.png';
       const overlayImage = await loadImage(overlayImageUrl);
       ctx.drawImage(overlayImage, x, y, width, height);
-
-  
+    
       if (!cardCounts[cardName]) {
         cardCounts[cardName] = 1;
       } else {
         cardCounts[cardName]++;
       }
-  
-     const cardPrint = cardCounts[cardName];
-     const cardCode = await generateUniqueCode();
-     
+    
+      const cardPrint = cardCounts[cardName];
+      const cardCode = await generateUniqueCode();
     
       const textBgHeight = 60;
       ctx.fillStyle = 'white';
@@ -208,8 +211,12 @@ client.on('messageCreate', async (msg) => {
         x + (width - textWidth) / 2,
         y + height + textBgHeight / 2 + 10
       );
-  
-      return { cardPrint, cardCode };
+    
+      // Dodaj wczytywanie baseElement z pliku imageUrls.json
+      const imageUrls = JSON.parse(fs.readFileSync('imageUrls.json', 'utf8'));
+      const baseElement = imageUrls.find(img => img.name === cardName)?.baseElement || 'defaultBaseElement';
+    
+      return { cardPrint, cardCode, baseElement };
     };
     
     const selectedImages = getRandomImages();
@@ -232,13 +239,14 @@ client.on('messageCreate', async (msg) => {
         singleImageWidth,
         singleImageHeight,
         selectedImages[i].name,
-        selectedImages[i].series 
+        selectedImages[i].series, 
+        selectedImages[i].baseElement
       );
     
 
       const element = getRandomElementWithChances(elements, [30, 30, 30, 10]); // Dodane
-      console.log('Element before getEmojiForElement:', element);
-      console.log('getEmojiForElement(element):', getEmojiForElement(element));
+      //console.log('Element before getEmojiForElement:', element);
+      //console.log('getEmojiForElement(element):', getEmojiForElement(element));
       cardsData.push({ ...cardData, element });
       //console.log('Element before getEmojiForElement:', element); // Dodane
       //console.log('getEmojiForElement(element):', getEmojiForElement(element)); // Dodane
@@ -319,13 +327,13 @@ client.on('messageCreate', async (msg) => {
                 console.log('Series:', series); // Dodaj to, aby sprawdzić wartość series przed wywołaniem funkcji
 
                 // Add card to the database
-                addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element); // Dodane
+                addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, cardData.baseElement);
+
     
                 try {
                   await interaction.deferUpdate();
                   const emojiForElement = getEmojiForElement(element);
-                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` of ${emojiForElement} element has been added to your inventory!`);
-
+                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` of ${emojiForElement} element has been added to your inventory!\nBase Element: ${cardData.baseElement}`);
     
                   // Check if it's the first card of this type
                   if (cardResults.length === 0) {
@@ -443,7 +451,7 @@ client.on('messageCreate', async (msg) => {
                     .addFields(
                         results.map((card, index) => ({
                             name: ` `,
-                            value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  •  \`${card.series}\`  •  Element: ${card.element} ${getEmojiForElement(card.element)}`,
+                            value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  •  \`${card.series}\`  •  Element: ${card.element} ${getEmojiForElement(card.element)}\nBase Element: ${card.base_element}`,  // Dodane
                         }))
                     );
 
@@ -785,12 +793,12 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Convert canvas to buffer
-    const buffer1 = canvas.toBuffer('image/png');
+    const buffer = canvas.toBuffer('image/png');
 
     // Send the buffer as an attachment
     msg.reply({
       files: [{
-        attachment: buffer1,
+        attachment: buffer,
         name: 'color.png',
       }],
     });
@@ -1004,7 +1012,7 @@ function addPlayerToDatabase(userId, username) {
   });
 }
 
-function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element) {
+function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement) {
   // Find the image object with the matching name in imageUrls
   const imageObject = imageUrls.find((image) => image.name === cardName);
 
@@ -1014,23 +1022,20 @@ function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, serie
   const elements = ['fire', 'earth', 'water', 'metal'];
 
   // Losowanie elementu z odpowiednimi szansami
-  const randomElement = element;
-  console.log(`Randomly assigned Element: ${randomElement}`);
+  const randomElement = getRandomElementWithChances(elements, [30, 30, 30, 10]);
 
-  const query = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())';
-  const values = [userId, cardName, cardUrl, cardPrint, cardCode, series, randomElement];
+  const query = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+  const values = [userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement];
 
   connection.query(query, values, (err, results) => {
     if (err) {
       console.error('Error adding card to database:', err.message);
     } else {
       console.log('Card added to database:', results);
-
-      // Dodaj poniższy kod, aby wypisać informacje o dodanej karcie
-      console.log(`Added card - Name: ${cardName}, Print: ${cardPrint}, Code: ${cardCode}, Series: ${series}, Element: ${randomElement}`);
     }
   });
 }
+
 
 
 

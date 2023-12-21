@@ -1012,6 +1012,10 @@ function addPlayerToDatabase(userId, username) {
   });
 }
 
+function getRandomNumberInRange(min, max) {
+  return Math.floor(Math.random() * (max - min + 1) + min);
+}
+
 function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement) {
   // Find the image object with the matching name in imageUrls
   const imageObject = imageUrls.find((image) => image.name === cardName);
@@ -1024,14 +1028,32 @@ function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, serie
   // Losowanie elementu z odpowiednimi szansami
   const randomElement = getRandomElementWithChances(elements, [30, 30, 30, 10]);
 
+  // Losowanie statystyk
+  const strength = getRandomNumberInRange(10, 100);
+  const defense = getRandomNumberInRange(5, 50);
+  const agility = getRandomNumberInRange(5, 30);
+  const wisdom = getRandomNumberInRange(1, 20);
+  const energy = getRandomNumberInRange(10, 50);
+  const luck = getRandomNumberInRange(1, 10);
+
   const query = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())';
   const values = [userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement];
 
-  connection.query(query, values, (err, results) => {
+  connection.query(query, values, async (err, results) => {
     if (err) {
       console.error('Error adding card to database:', err.message);
     } else {
       console.log('Card added to database:', results);
+
+      // Dodaj statystyki do tabeli card_stats
+      const statsQuery = 'INSERT INTO card_stats (card_code, strength, defense, agility, wisdom, energy, luck) VALUES (?, ?, ?, ?, ?, ?, ?)';
+      const statsValues = [cardCode, strength, defense, agility, wisdom, energy, luck];
+
+      connection.query(statsQuery, statsValues, (statsErr) => {
+        if (statsErr) {
+          console.error('Error adding stats to database:', statsErr.message);
+        }
+      });
     }
   });
 }

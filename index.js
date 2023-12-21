@@ -225,7 +225,7 @@ client.on('messageCreate', async (msg) => {
     const spacing = 50;
     const topMargin = 20;
     const cardsData = [];
-    const elements = ['fire', 'earth', 'water', 'metal']; // Dodane
+    const elements = ['🔥', '🗿', '💧', '⚙️']; // Dodane
 
 
     for (let i = 0; i < selectedImages.length; i++) {
@@ -362,24 +362,32 @@ client.on('messageCreate', async (msg) => {
   } else if (msg.content.startsWith('maddimage') && allowedUserIds.includes(msg.author.id)) {
     const args = msg.content.slice('maddimage'.length).trim().split(' ');
   
-    if (args.length === 3) {
+    if (args.length === 4) {
       const name = args[0];
       const url = args[1];
       const series = args[2];
+      const baseElement = args[3]; // New parameter for base element emoji
   
-      // Add new image to the imageUrls array
-      imageUrls.push({ name, url, series });
+      // Check if the base element is one of the specified emojis
+      const validBaseElements = ['🔥', '🗿', '💧', '⚙️'];
+      if (!validBaseElements.includes(baseElement)) {
+        msg.reply('Invalid base element emoji. Please use one of the following: 🔥, 🗿, 💧, ⚙️.');
+        return;
+      }
+  
+      // Add new image to the imageUrls array with base element
+      imageUrls.push({ name, url, series, baseElement });
   
       // Save changes to the file
       saveUpdatedImageUrls();
   
       // Add card info to the database
-      addCardInfoToDatabase(name, 0); // latestPrint set to 0 by default
+      addCardInfoToDatabase(name, 0, baseElement); // latestPrint set to 0 by default
   
       msg.reply(`Image "${name}" added successfully.`);
       console.log('New image was added');
     } else {
-      msg.reply('Invalid command format. Use !addimage <name> <url> <series>.');
+      msg.reply('Invalid command format. Use !addimage <name> <url> <series> <🔥or🗿or💧or⚙️>.');
     }
   
     return;
@@ -805,8 +813,102 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
 
     // Update user's inventory (subtract 1 scroll)
     await updateUserItemsAmount(userId, 'scroll', scrollAmount - 1);
+  } else if (msg.content.startsWith('mcardinfo')) {
+    const cardCode = msg.content.split(' ')[1];
+    if (!cardCode) {
+      msg.reply('Please provide a card code.');
+      return;
+    }
+  
+    const userId = msg.author.id;
+  
+    // Fetch card information and statistics from the database
+    const query = `
+    SELECT ci.*, cs.*
+    FROM card_inventory ci
+    LEFT JOIN card_stats cs ON ci.card_code = cs.card_code
+    WHERE ci.user_id = ? AND ci.card_code = ?
+    `;
+    const values = [userId, cardCode];
+  
+    connection.query(query, values, (err, results) => {
+      if (err) {
+        console.error('Error fetching card info from database:', err.message);
+        msg.reply('An error occurred while fetching card info.');
+      } else {
+        if (results.length === 0) {
+          msg.reply('You do not own a card with that code.');
+        } else {
+          const cardInfo = results[0];
+          const embed = createCardInfoEmbed(cardInfo);
+          msg.reply({ embeds: [embed] });
+        }
+      }
+    });
   }
+  
+  
+  
 });
+
+function createCardInfoEmbed(cardInfo) {
+  // Emoji representations for statistics
+  const emojiMap = {
+    strength: '💪',
+    defense: '🛡️',
+    agility: '🏃',
+    wisdom: '🧠',
+    energy: '⚡',
+    luck: '🍀',
+  };
+
+  const centeredTitle = `**    ${cardInfo.card_name}** \u2022 ${cardInfo.series || 'N/A'}`;
+
+  return {
+    color: 0x0099ff,
+    title: centeredTitle,
+    fields: [
+      { name: 'Elements', value: `${cardInfo.element || 'N/A'} \u2022 ${cardInfo.base_element || 'N/A'}` },
+      {
+        name: 'Stats',
+        value: `**STR:** ${
+          cardInfo.strength !== null ? cardInfo.strength + emojiMap.strength : 'N/A'
+        } | **DEF:** ${
+          cardInfo.defense !== null ? cardInfo.defense + emojiMap.defense : 'N/A'
+        } | **AGI:** ${
+          cardInfo.agility !== null ? cardInfo.agility + emojiMap.agility : 'N/A'
+        } | **WIS:** ${
+          cardInfo.wisdom !== null ? cardInfo.wisdom + emojiMap.wisdom : 'N/A'
+        } | **ENG:** ${
+          cardInfo.energy !== null ? cardInfo.energy + emojiMap.energy : 'N/A'
+        } | **LCK:** ${
+          cardInfo.luck !== null ? cardInfo.luck + emojiMap.luck : 'N/A'
+        }`,
+      },
+    ],
+    image: { url: cardInfo.card_url },
+    footer: { text: 'Legend: STR (Strength), DEF (Defense), AGI (Agility), WIS (Wisdom), ENG (Energy), LCK (Luck)' },
+  };
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function getEmojiForElement(element) {
   switch (element) {
@@ -822,6 +924,7 @@ function getEmojiForElement(element) {
       return '';
   }
 }
+
 async function getUserItemsAmount(userId, itemType) {
   return new Promise((resolve, reject) => {
     connection.query('SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?', [userId, itemType], (err, results) => {
@@ -1023,12 +1126,12 @@ function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, serie
   // Check if the image object and its series property exist
   series = imageObject && imageObject.series ? imageObject.series : 'default_series';
 
-  const elements = ['fire', 'earth', 'water', 'metal'];
+  const elements = ['🔥', '🗿', '💧', '⚙️'];
 
-  // Losowanie elementu z odpowiednimi szansami
+  // Randomly choose an element with specified chances
   const randomElement = getRandomElementWithChances(elements, [30, 30, 30, 10]);
 
-  // Losowanie statystyk
+  // Randomly generate statistics
   const strength = getRandomNumberInRange(10, 100);
   const defense = getRandomNumberInRange(5, 50);
   const agility = getRandomNumberInRange(5, 30);
@@ -1036,20 +1139,21 @@ function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, serie
   const energy = getRandomNumberInRange(10, 50);
   const luck = getRandomNumberInRange(1, 10);
 
-  const query = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())';
-  const values = [userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement];
+  const queryInventory = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+  const valuesInventory = [userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement];
 
-  connection.query(query, values, async (err, results) => {
+  const queryStats = 'INSERT INTO card_stats (card_code, strength, defense, agility, wisdom, energy, luck) VALUES (?, ?, ?, ?, ?, ?, ?)';
+  const valuesStats = [cardCode, strength, defense, agility, wisdom, energy, luck];
+
+  // Insert into card_inventory
+  connection.query(queryInventory, valuesInventory, async (err, results) => {
     if (err) {
       console.error('Error adding card to database:', err.message);
     } else {
       console.log('Card added to database:', results);
 
-      // Dodaj statystyki do tabeli card_stats
-      const statsQuery = 'INSERT INTO card_stats (card_code, strength, defense, agility, wisdom, energy, luck) VALUES (?, ?, ?, ?, ?, ?, ?)';
-      const statsValues = [cardCode, strength, defense, agility, wisdom, energy, luck];
-
-      connection.query(statsQuery, statsValues, (statsErr) => {
+      // Insert into card_stats
+      connection.query(queryStats, valuesStats, (statsErr) => {
         if (statsErr) {
           console.error('Error adding stats to database:', statsErr.message);
         }
@@ -1057,6 +1161,7 @@ function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, serie
     }
   });
 }
+
 
 
 

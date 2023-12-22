@@ -333,7 +333,7 @@ client.on('messageCreate', async (msg) => {
                 try {
                   await interaction.deferUpdate();
                   const emojiForElement = getEmojiForElement(element);
-                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` of ${emojiForElement} element has been added to your inventory!\nBase Element: ${cardData.baseElement}`);
+                  await interaction.followUp(`"${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` of ${element} element has been added to your inventory!\nBase Element: ${cardData.baseElement}`);
     
                   // Check if it's the first card of this type
                   if (cardResults.length === 0) {
@@ -851,6 +851,39 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
   
 });
 
+function generateSpecialAbility(element, baseElement) {
+  const emojiMap = {
+    fire: '🔥',
+    earth: '🗿',
+    water: '💧',
+    metal: '⚙️',
+  };
+
+  const abilities = {
+    [`${emojiMap.fire}_${emojiMap.earth}`]: { name: 'Cinderclad Rupture', description: `Summons a localized volcanic fissure beneath a targeted enemy, dealing a moderate 70% hybrid damage of ${emojiMap.earth} or ${emojiMap.fire}. Has a 90% chance of creating a "Smouldering" debuff, which persists for 2 turns, causing 10% DOT ${emojiMap.fire} damage to the enemy for 1 turn.` },
+    [`${emojiMap.fire}_${emojiMap.water}`]: { name: 'Mistral Confluence', description: `Weaves a plume of steam directed at a single enemy, dealing 80% hybrid damage upon impact. Has a 90% chance of causing a "Blurred Haze" status effect, which decreases the target's damage by 10% for their next turn.` },
+    [`${emojiMap.fire}_${emojiMap.metal}`]: { name: 'Ferric Blaze', description: `Hurls a molten metal shard at a single target, dealing precise 65% hybrid damage. Has an 85% chance to embed metal poison in the target, reducing their defense by 5% and causing a "Metallic Sear" for 2 turns, inflicting 5% DOT ${emojiMap.metal} damage each turn.` },
+    [`${emojiMap.earth}_${emojiMap.water}`]: { name: 'Mudslide', description: `Generates a torrent of mud at a target location within a 2-block radius, ensnaring enemies with 90% hybrid damage. The thick sludge slows down the enemy movement by 20% for the next turn.` },
+    [`${emojiMap.earth}_${emojiMap.metal}`]: { name: 'Sharp Pebble', description: `Targets 2 block enemies, causing a 50% hybrid damage. Has a 100% chance to stun enemies for 2 turns.` },
+    [`${emojiMap.water}_${emojiMap.metal}`]: { name: 'Razor Torrent', description: `Sends forth a jet of water at high velocity towards a single enemy, inflicting 85% hybrid damage. Decreases the target's defense by 8% for 3 turns.` },
+    // Dodaj pozostałe kombinacje z emoji
+    [`${emojiMap.earth}_${emojiMap.fire}`]: { name: 'Cinderclad Rupture', description: `Summons a localized volcanic fissure beneath a targeted enemy, dealing a moderate 70% hybrid damage of ${emojiMap.earth} or ${emojiMap.fire}. Has a 90% chance of creating a "Smouldering" debuff, which persists for 2 turns, causing 10% DOT ${emojiMap.fire} damage to the enemy for 1 turn.` },
+    [`${emojiMap.water}_${emojiMap.fire}`]: { name: 'Mistral Confluence', description: `Weaves a plume of steam directed at a single enemy, dealing 80% hybrid damage upon impact. Has a 90% chance of causing a "Blurred Haze" status effect, which decreases the target's damage by 10% for their next turn.` },
+    [`${emojiMap.metal}_${emojiMap.fire}`]: { name: 'Ferric Blaze', description: `Hurls a molten metal shard at a single target, dealing precise 65% hybrid damage. Has an 85% chance to embed metal poison in the target, reducing their defense by 5% and causing a "Metallic Sear" for 2 turns, inflicting 5% DOT ${emojiMap.metal} damage each turn.` },
+    [`${emojiMap.water}_${emojiMap.earth}`]: { name: 'Mudslide', description: `Generates a torrent of mud at a target location within a 2-block radius, ensnaring enemies with 90% hybrid damage. The thick sludge slows down the enemy movement by 20% for the next turn.` },
+    [`${emojiMap.metal}_${emojiMap.earth}`]: { name: 'Sharp Pebble', description: `Targets 2 block enemies, causing a 50% hybrid damage. Has a 100% chance to stun enemies for 2 turns.` },
+    [`${emojiMap.metal}_${emojiMap.water}`]: { name: 'Razor Torrent', description: `Sends forth a jet of water at high velocity towards a single enemy, inflicting 85% hybrid damage. Decreases the target's defense by 8% for 3 turns.` },
+  };
+
+  const key = `${element}_${baseElement}`;
+  return abilities[key] || { name: 'No special ability', description: 'Your card has 2 same elements, it\'s nothing special, give up on your dream and die' };
+}
+
+
+
+
+
+
 function createCardInfoEmbed(cardInfo) {
   // Emoji representations for statistics
   const emojiMap = {
@@ -863,6 +896,9 @@ function createCardInfoEmbed(cardInfo) {
   };
 
   const centeredTitle = `**    ${cardInfo.card_name}** \u2022 ${cardInfo.series || 'N/A'}`;
+
+  const specialAbility = generateSpecialAbility(cardInfo.element, cardInfo.base_element);
+  const abilityValue = `**Name:** ${specialAbility.name}\n**Description:** ${specialAbility.description}`;
 
   return {
     color: 0x0099ff,
@@ -885,30 +921,12 @@ function createCardInfoEmbed(cardInfo) {
           cardInfo.luck !== null ? cardInfo.luck + emojiMap.luck : 'N/A'
         }`,
       },
+      { name: 'Special Ability', value: abilityValue },
     ],
     image: { url: cardInfo.card_url },
     footer: { text: 'Legend: STR (Strength), DEF (Defense), AGI (Agility), WIS (Wisdom), ENG (Energy), LCK (Luck)' },
   };
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function getEmojiForElement(element) {
   switch (element) {

@@ -1,21 +1,29 @@
-// Import
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+// Discord-related imports
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } = require('discord.js');
 const Discord = require('discord.js');
 const { Interaction } = require('discord.js');
+
+// Canvas and file system related imports
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
+
+// Database related imports
 const mysql = require('mysql2');
 const util = require('util');
+
+// Path-related variables
 const imageUrlsPath = './imageUrls.json';
-const characters = require('./imageUrls.json');
 const jsonFilePath = './moderators.json';
-const allowedUserId = '556469452003344384';
+
+// Data imports
+const characters = require('./imageUrls.json');
 const moderators = require('./moderators.json');
 
-// dotenv
+// dotenv for environment variables
 require('dotenv').config();
 
-// Variables
+
+// Player-related variables
 let player1CardCodes = [];
 let player2CardCodes = [];
 let lockClicks = 0;
@@ -23,44 +31,59 @@ let lastTradeAuthor = '';
 let requester;
 let tradeRequestHandled = false;
 let lastCommandAuthor;
-let provideItemsMessage= null;
-const debugUserId = '556469452003344384';
+
+// Trade-related variables
+let provideItemsMessage = null;
 let tradeMessage;
 const globalData = {
-  cardName0:null,
-  cardSeries0:null
+  cardName0: null,
+  cardSeries0: null
 };
+
+// Shared and display-related variables
 let description_;
 const sharedData = {};
 const cardsPerPage = 10;
 let currentPage = 1;
 let inventoryMessage = null;
+
+// Server and channel identifiers
 const guildId = '1203697950111436862';
-const serverChannelId ='1203700143397011536';
+const serverChannelId = '1203700143397011536';
+
+//Debuggers
+const debugUserId = '556469452003344384';
+const allowedUserId = '556469452003344384';
+
+// Print and code-related variables
 let existingPrints = {};
 let latestPrints = {};
 let imageUrls;
 let lastGeneratedCode = '';
 const existingCodes = {};
 const cardCounts = {};
+
+// Cooldown and authorization-related variables
 const cooldowns = new Map();
 const allowedUserIds = process.env.DEVS;
+
+// Item-related variables
 const itemEmojis = {
   coins: '💰',
   common_ticket: '🎫',
-  scroll:'📜',
+  scroll: '📜',
 };
 const itemPrices = {
   common_ticket: 1,
   scroll: 2
 };
-
 const shopItems = {
   common_ticket: { cost: 1, itemType: 'common_ticket' },
   scroll: { cost: 2, itemType: 'scroll' },
 };
 
-// Client
+
+// Client initialization
 const client = new Client({
   intents: [ 
     GatewayIntentBits.Guilds,
@@ -72,102 +95,42 @@ const client = new Client({
   ],
 });
 
-// Database connection
-const connection = mysql.createPool({
-    connectionLimit: 10,
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: "",
-    database: process.env.DB_NAME,
-});
-
-const query = util.promisify(connection.query).bind(connection);
-
-try {
-  const imageUrlsData = fs.readFileSync(imageUrlsPath, 'utf8');
-  imageUrls = JSON.parse(imageUrlsData);
-} catch (error) {
-  console.error('Error reading imageUrls file:', error.message);
-  process.exit(1);
-}
-
-
-const loadLatestPrintsFromDatabase = async () => {
-  try {
-    const selectMaxPrintsQuery = 'SELECT card_name, MAX(latest_print) AS max_print FROM card_info GROUP BY card_name';
-    const maxPrintResults = await query(selectMaxPrintsQuery);
-
-    const maxPrints = {};
-    maxPrintResults.forEach((row) => {
-      maxPrints[row.card_name] = row.max_print;
-    });
-
-    //console.log('Latest prints loaded from the database:', maxPrints);
-    return maxPrints;
-  } catch (error) {
-    console.error('Error loading latest prints from the database:', error.message);
-    return {};
-  }
-};
-
-const loadExistingPrintsFromDatabase = async () => {
-  try {
-    const latestPrints = await loadLatestPrintsFromDatabase();
-    existingPrints = { ...latestPrints };
-    //console.log('Existing prints loaded from the latest prints:', existingPrints);
-
-    // Wczytaj liczniki z bazy danych
-    const loadCountsQuery = 'SELECT card_name, latest_print FROM card_info';
-    const counts = await query(loadCountsQuery);
-    counts.forEach((row) => {
-      cardCounts[row.card_name] = row.latest_print;
-    });
-
-    //console.log('Card counts loaded from the database:', cardCounts);
-  } catch (error) {
-    console.error('Error loading existing prints from the latest prints:', error.message);
-  }
-};
-
-
-const updateLatestPrintInDatabase = async (cardName, latestPrint) => {
-  try {
-    //console.log(`Attempting to update latest print in the database for ${cardName} to ${latestPrint}`);
-
-    // Sprawdź, czy latestPrint jest liczbą lub stringiem
-    if (typeof latestPrint !== 'string' && typeof latestPrint !== 'number') {
-      console.error(`Error updating latest print in database for ${cardName}: latestPrint must be a string or number.`);
-      return;
-    }
-
-    const updateQuery = 'UPDATE card_info SET latest_print = ? WHERE card_name = ?';
-    const [updateResult] = await connection.execute(updateQuery, [latestPrint, cardName]);
-
-    console.log(`Card: ${cardName}, Latest Print: ${latestPrint}`);
-    console.log('Update result:', updateResult);
-
-    if (updateResult.affectedRows > 0) {
-      console.log(`Updated latest print in the database for ${cardName}.`);
-    } else {
-      console.log(`Failed to update latest print in the database for ${cardName}. No rows affected.`);
-    }
-  } catch (error) {
-    //console.error(`Error updating latest print in database for ${cardName}:`, error.message);
-    //console.error('Error stack:', error.stack);
-  }
-};
-
 // Ready event
 client.on('ready', async () => {
   console.log(`Logged in as ${client.user.username}!`);
 
+  //Set activity status
+  client.user.setPresence({
+    activities: [{ name: `mhelp`, type: ActivityType.Listening }],
+    status: 'dnd',
+  });
+
   // Load latest prints from the database
   const loadedLatestPrints = await loadLatestPrintsFromDatabase();
-  //console.log('Latest prints loaded from the database:', loadedLatestPrints);
 
   // Load existing prints from the database
   loadExistingPrintsFromDatabase();
 });
+
+// Database connection
+const connection = mysql.createPool({
+  connectionLimit: 10,
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: "",
+  database: process.env.DB_NAME,
+});
+
+const query = util.promisify(connection.query).bind(connection);
+
+// Read imageUrls file and parse data
+try {
+const imageUrlsData = fs.readFileSync(imageUrlsPath, 'utf8');
+imageUrls = JSON.parse(imageUrlsData);
+} catch (error) {
+console.error('Error reading imageUrls file:', error.message);
+process.exit(1);
+}
 
 // MessageCreate event
 client.on('messageCreate', async (msg) => {
@@ -194,9 +157,9 @@ client.on('messageCreate', async (msg) => {
   if (msg.content === 'ping') {
     msg.channel.send('pong');
   } else if (msg.content === 'mlalo'&& !msg.interaction) {
-    if (msg.alreadyExecuted) return; // Dodaj tę linię
+    if (msg.alreadyExecuted) return; 
 
-    msg.alreadyExecuted = true; // Dodaj tę linię
+    msg.alreadyExecuted = true; 
 
 
     if (cooldowns.has(msg.author.id)) {
@@ -241,7 +204,7 @@ client.on('messageCreate', async (msg) => {
         y + height + textBgHeight / 2 + 10
       );
     
-      // Dodaj wczytywanie baseElement z pliku imageUrls.json
+      // Load baseElement from the imageUrls.json file
       const imageUrls = JSON.parse(fs.readFileSync('imageUrls.json', 'utf8'));
       const baseElement = imageUrls.find(img => img.name === cardName)?.baseElement || 'defaultBaseElement';
     
@@ -254,7 +217,7 @@ client.on('messageCreate', async (msg) => {
     const spacing = 50;
     const topMargin = 20;
     const cardsData = [];
-    const elements = ['🔥', '🗿', '💧', '⚙️', '⚡', '🌬️', '💥', '🌑', '💡', '🥊', '🛡️']; // Dodane
+    const elements = ['🔥', '🗿', '💧', '⚙️', '⚡', '🌬️', '💥', '🌑', '💡', '🥊', '🛡️']; // Added
 
 
     for (let i = 0; i < selectedImages.length; i++) {
@@ -273,12 +236,12 @@ client.on('messageCreate', async (msg) => {
       );
     
 
-      const element = getRandomElementWithChances(elements, [9.5,9.5,9.5,9.5,9.5,9.5,5,9.5,9.5,9.5,9.5]); // Dodane
+      const element = getRandomElementWithChances(elements, [9.5,9.5,9.5,9.5,9.5,9.5,5,9.5,9.5,9.5,9.5]); // Added
       //console.log('Element before getEmojiForElement:', element);
       //console.log('getEmojiForElement(element):', getEmojiForElement(element));
       cardsData.push({ ...cardData, element });
-      //console.log('Element before getEmojiForElement:', element); // Dodane
-      //console.log('getEmojiForElement(element):', getEmojiForElement(element)); // Dodane
+      //console.log('Element before getEmojiForElement:', element); // Added
+      //console.log('getEmojiForElement(element):', getEmojiForElement(element)); // Added
 
       //console.log('Latest prints before update:', latestPrints);
        // Update the latest print for this card in the database
@@ -323,7 +286,7 @@ client.on('messageCreate', async (msg) => {
     collector.on('collect', async (interaction) => {
       const buttonId = interaction.customId;
       const cardData = cardsData[parseInt(buttonId) - 1];
-      const { cardPrint, cardCode, element } = cardData; // Dodane
+      const { cardPrint, cardCode, element } = cardData; // Added
     
       // Add card information to the database
       const userId = interaction.user.id;
@@ -332,7 +295,7 @@ client.on('messageCreate', async (msg) => {
       const series = selectedImages[parseInt(buttonId) - 1].series; // Get the series property
       
 
-      const elementString = element ? getEmojiForElement(element) : 'unknown'; // Ustawia domyślną wartość, jeśli element nie jest zdefiniowany
+      const elementString = element ? getEmojiForElement(element) : 'unknown'; // Set default value if element is not defined
      // Check if the user exists in the players table
       const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
       const checkUserValues = [userId];
@@ -353,7 +316,7 @@ client.on('messageCreate', async (msg) => {
               if (cardErr) {
                 console.error('Error checking card in database:', cardErr.message);
               } else {
-                console.log('Series:', series); // Dodaj to, aby sprawdzić wartość series przed wywołaniem funkcji
+                console.log('Series:', series); // Add this to check the value of series before calling the function
 
                 // Add card to the database
                 addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, cardData.baseElement);
@@ -416,7 +379,7 @@ client.on('messageCreate', async (msg) => {
       msg.reply(`Image "${name}" added successfully.`);
       console.log('New image was added');
     } else {
-      msg.reply('Invalid command format. Use !addimage <name> <url> <series> <🔥or🗿or💧or⚙️or⚡️or🌬️or💥or🌑or💡or🥊or🛡️>.');
+      msg.reply('Invalid command format. Use maddimage <name> <url> <series> <🔥or🗿or💧or⚙️or⚡️or🌬️or💥or🌑or💡or🥊or🛡️>.');
     }
   
     return;
@@ -556,49 +519,46 @@ client.on('messageCreate', async (msg) => {
 
     // Check if the user exists in the players table
     const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
-const checkUserValues = [userId];
+    const checkUserValues = [userId];
 
-connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
-  if (err) {
-    console.error('Error checking user in database:', err.message);
-  } else {
-    if (userResults.length === 0) {
-      // User does not exist, add them to the players table
-      addPlayerToDatabase(userId, 'default_username'); // You can customize the default username
-      msg.reply('You have been successfully registered!');
-    } else {
-      // User already exists
-      msg.reply('You are already registered!');
-      // Continue with the rest of the logic here
-      // ...
-    }
-  }
-});
+    connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
+        if (err) {
+            console.error('Error checking user in database:', err.message);
+        } else {
+            if (userResults.length === 0) {
+                // User does not exist, add them to the players table
+                addPlayerToDatabase(userId, 'default_username'); // You can customize the default username
+                msg.reply('You have been successfully registered!');
+            } else {
+                // User already exists
+                msg.reply('You are already registered!');
+            }
+        }
+    });
   } else if (msg.content === 'mhelp') {
     const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle('CardBot Commands')
-      .setDescription('Here are the available commands:')
-      .addFields(
-        { name: 'mlalo', value: 'Summon 3 random cards.', inline: true },
-        { name: 'minventory', value: 'View your card inventory.', inline: true },
-        { name: 'mregister', value: 'Register as a player.', inline: true },
-        { name: 'mhelp', value: 'Display this help message.', inline: true },
-        { name: 'mview <code>', value: 'View a card by its code.', inline: true },
-        { name: 'mremove <code>', value: 'Remove a card by its code.', inline: true },
-        { name: 'mitems', value: 'View all items in your inventory.', inline: true },
-        { name: 'mbuy <item>', value: 'Buy an item from the shop.', inline: true },
-        { name: 'mshop', value: 'Show shop offerings',inline: true },
-        { name: 'mscroll', value: 'Open scroll (containing random color)',inline: true },
-        { name: 'mcardinfo <code>', value: 'Showing card statictics like element assigned special ability',inline: true},
-        { name: 'msearch <card_name>', value: 'Searching for existing card in card pool - NOTE: name no need to be full, command ill show 10 cards closest for search name.', inline: true },
-        { name: 'mdamage', value: 'Showing damage formula',inline:true},
-        { name: 'madddescription', value:'Send description u wanna add for card, It ill be added if moderator ill approve it',inline:true},
-        { name:'\u200B',value:'\u200B'},
-        { name: 'maddimage <name> <url> <series> <element_emoji>', value: 'Add a new image to the card pool (admin only).', inline: true },
-        { name: 'maddmoderator', value: 'Adding moderator (admin only)',inline: true },
-        
-      );
+        .setColor('#0099ff')
+        .setTitle('CardBot Commands')
+        .setDescription('Here are the available commands:')
+        .addFields(
+            { name: 'mlalo', value: 'Summon 3 random cards.', inline: true },
+            { name: 'minventory', value: 'View your card inventory.', inline: true },
+            { name: 'mregister', value: 'Register as a player.', inline: true },
+            { name: 'mhelp', value: 'Display this help message.', inline: true },
+            { name: 'mview <code>', value: 'View a card by its code.', inline: true },
+            { name: 'mremove <code>', value: 'Remove a card by its code.', inline: true },
+            { name: 'mitems', value: 'View all items in your inventory.', inline: true },
+            { name: 'mbuy <item>', value: 'Buy an item from the shop.', inline: true },
+            { name: 'mshop', value: 'Show shop offerings', inline: true },
+            { name: 'mscroll', value: 'Open scroll (containing random color)', inline: true },
+            { name: 'mcardinfo <code>', value: 'Showing card statictics like element assigned special ability', inline: true},
+            { name: 'msearch <card_name>', value: 'Searching for existing card in card pool - NOTE: name no need to be full, command ill show 10 cards closest for search name.', inline: true },
+            { name: 'mdamage', value: 'Showing damage formula', inline: true},
+            { name: 'madddescription', value:'Send description u wanna add for card, It ill be added if moderator ill approve it', inline: true},
+            { name:'\u200B',value:'\u200B'},
+            { name: 'maddimage <name> <url> <series> <element_emoji>', value: 'Add a new image to the card pool (admin only).', inline: true },
+            { name: 'maddmoderator', value: 'Adding moderator (admin only)', inline: true },
+        );
 
     msg.reply({ embeds: [embed] });
   } else if (msg.content.startsWith('mview')) {
@@ -610,162 +570,162 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     const checkUserValues = [userId];
 
     connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
-      if (err) {
-        console.error('Error checking user in database:', err.message);
-      } else {
-        if (userResults.length === 0) {
-          // User does not exist, inform them to use the !register command
-          msg.reply('You need to register first! Use the command `mregister`.');
+        if (err) {
+            console.error('Error checking user in database:', err.message);
         } else {
-          // User exists, check if a card with the given code exists in their inventory
-          const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
-          const checkCardValues = [userId, codeToView];
-
-          connection.query(checkCardQuery, checkCardValues, async (cardErr, cardResults) => {
-            if (cardErr) {
-              console.error('Error checking card in database:', cardErr.message);
+            if (userResults.length === 0) {
+                // User does not exist, inform them to use the !register command
+                msg.reply('You need to register first! Use the command `mregister`.');
             } else {
-              if (cardResults.length === 0) {
-                msg.reply(`Card with code ${codeToView} not found in your inventory.`);
-              } else {
-                // Card found, load the image and generate the view
-                const card = cardResults[0];
-                const imageUrl = card.card_url;
-                const print = card.card_print;
-                const name = card.card_name;
+                // User exists, check if a card with the given code exists in their inventory
+                const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
+                const checkCardValues = [userId, codeToView];
 
-                // Load the card image
-                const cardImage = await loadImage(imageUrl);
+                connection.query(checkCardQuery, checkCardValues, async (cardErr, cardResults) => {
+                    if (cardErr) {
+                        console.error('Error checking card in database:', cardErr.message);
+                    } else {
+                        if (cardResults.length === 0) {
+                            msg.reply(`Card with code ${codeToView} not found in your inventory.`);
+                        } else {
+                            // Card found, load the image and generate the view
+                            const card = cardResults[0];
+                            const imageUrl = card.card_url;
+                            const print = card.card_print;
+                            const name = card.card_name;
 
-                // Define new image size
-                const newWidth = 1500;
-                const newHeight = 2100;
-                const overlayWidthIncrease = 5; // Increase the width by five pixels
-                const overlayShiftLeft = 1; // Shift the overlay one pixel to the left
-                const canvas = createCanvas(newWidth, newHeight);
-                const ctx = canvas.getContext('2d');
+                            // Load the card image
+                            const cardImage = await loadImage(imageUrl);
 
-                // Calculate new image proportions
-                const scaleFactor = Math.min(newWidth / cardImage.width, newHeight / cardImage.height);
+                            // Define new image size
+                            const newWidth = 1500;
+                            const newHeight = 2100;
+                            const overlayWidthIncrease = 5; // Increase the width by five pixels
+                            const overlayShiftLeft = 1; // Shift the overlay one pixel to the left
+                            const canvas = createCanvas(newWidth, newHeight);
+                            const ctx = canvas.getContext('2d');
 
-                // Calculate position to center the image
-                const offsetX = (newWidth - cardImage.width * scaleFactor) / 2;
-                const offsetY = (newHeight - cardImage.height * scaleFactor) / 2;
+                            // Calculate new image proportions
+                            const scaleFactor = Math.min(newWidth / cardImage.width, newHeight / cardImage.height);
 
-                // Draw the card image with the new proportions and position
-                ctx.drawImage(cardImage, offsetX, offsetY, cardImage.width * scaleFactor, cardImage.height * scaleFactor);
+                            // Calculate position to center the image
+                            const offsetX = (newWidth - cardImage.width * scaleFactor) / 2;
+                            const offsetY = (newHeight - cardImage.height * scaleFactor) / 2;
 
-                // Load and draw the overlay image
-                const overlayImageUrl = './Frame01.png'; // Replace with the path to your second overlay image
-                const overlayImage = await loadImage(overlayImageUrl);
+                            // Draw the card image with the new proportions and position
+                            ctx.drawImage(cardImage, offsetX, offsetY, cardImage.width * scaleFactor, cardImage.height * scaleFactor);
 
-                // Scale the overlay image to the size of the card image with width increase
-                const overlayWidth = cardImage.width + overlayWidthIncrease;
-                const overlayHeight = cardImage.height;
-                const overlayX = offsetX - overlayWidthIncrease / 2 - overlayShiftLeft; // Shift and center the overlay horizontally
-                const overlayY = offsetY;
+                            // Load and draw the overlay image
+                            const overlayImageUrl = './Frame01.png'; // Replace with the path to your second overlay image
+                            const overlayImage = await loadImage(overlayImageUrl);
 
-                ctx.drawImage(
-                  overlayImage,
-                  overlayX,
-                  overlayY,
-                  overlayWidth * scaleFactor,
-                  overlayHeight * scaleFactor
-                );
+                            // Scale the overlay image to the size of the card image with width increase
+                            const overlayWidth = cardImage.width + overlayWidthIncrease;
+                            const overlayHeight = cardImage.height;
+                            const overlayX = offsetX - overlayWidthIncrease / 2 - overlayShiftLeft; // Shift and center the overlay horizontally
+                            const overlayY = offsetY;
 
-                ctx.font = '40px Arial';
-                ctx.fillStyle = 'white';
-                ctx.fillText(`"${name}" #${print} ~${codeToView})`, 20, canvas.height - 30);
+                            ctx.drawImage(
+                                overlayImage,
+                                overlayX,
+                                overlayY,
+                                overlayWidth * scaleFactor,
+                                overlayHeight * scaleFactor
+                            );
 
-                const buffer = canvas.toBuffer();
+                            ctx.font = '40px Arial';
+                            ctx.fillStyle = 'white';
+                            ctx.fillText(`"${name}" #${print} ~${codeToView})`, 20, canvas.height - 30);
 
-                // Send the image to the user
-                msg.reply({ files: [buffer] });
-              }
+                            const buffer = canvas.toBuffer();
+
+                            // Send the image to the user
+                            msg.reply({ files: [buffer] });
+                        }
+                    }
+                });
             }
-          });
         }
-      }
     });
   } else if (msg.content.startsWith('mremove')) {
     const userId = msg.author.id;
     const codeToRemove = msg.content.slice('mremove'.length).trim();
-  
+
     // Check if the user exists in the players table
     const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
     const checkUserValues = [userId];
-  
+
     connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
-      if (err) {
-        console.error('Error checking user in database:', err.message);
-      } else {
-        if (userResults.length === 0) {
-          // User does not exist, inform them to use the !register command
-          msg.reply('You need to register first! Use the command `mregister`.');
+        if (err) {
+            console.error('Error checking user in database:', err.message);
         } else {
-          // User exists, check if a card with the given code exists in their inventory
-          const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
-          const checkCardValues = [userId, codeToRemove];
-  
-          connection.query(checkCardQuery, checkCardValues, async (cardErr, cardResults) => {
-            if (cardErr) {
-              console.error('Error checking card in database:', cardErr.message);
+            if (userResults.length === 0) {
+                // User does not exist, inform them to use the !register command
+                msg.reply('You need to register first! Use the command `mregister`.');
             } else {
-              if (cardResults.length === 0) {
-                msg.reply(`Card with code ${codeToRemove} not found in your inventory.`);
-              } else {
-                // Card found, delete it from the database
-                const deleteCardQuery = 'DELETE FROM card_inventory WHERE user_id = ? AND card_code = ?';
-                const deleteCardValues = [userId, codeToRemove];
-  
-                connection.query(deleteCardQuery, deleteCardValues, async (deleteErr, deleteResults) => {
-                  if (deleteErr) {
-                    console.error('Error deleting card from the database:', deleteErr.message);
-                  } else {
-                    console.log('Card deleted from the database:', deleteResults);
-  
-                    // Add items to the user_items table
-                    await addItemsToUser(userId);
-  
-                    msg.reply(`Card with code ${codeToRemove} has been removed from your inventory, and you received items.`);
-                  }
+                // User exists, check if a card with the given code exists in their inventory
+                const checkCardQuery = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?';
+                const checkCardValues = [userId, codeToRemove];
+
+                connection.query(checkCardQuery, checkCardValues, async (cardErr, cardResults) => {
+                    if (cardErr) {
+                        console.error('Error checking card in database:', cardErr.message);
+                    } else {
+                        if (cardResults.length === 0) {
+                            msg.reply(`Card with code ${codeToRemove} not found in your inventory.`);
+                        } else {
+                            // Card found, delete it from the database
+                            const deleteCardQuery = 'DELETE FROM card_inventory WHERE user_id = ? AND card_code = ?';
+                            const deleteCardValues = [userId, codeToRemove];
+
+                            connection.query(deleteCardQuery, deleteCardValues, async (deleteErr, deleteResults) => {
+                                if (deleteErr) {
+                                    console.error('Error deleting card from the database:', deleteErr.message);
+                                } else {
+                                    console.log('Card deleted from the database:', deleteResults);
+
+                                    // Add items to the user_items table
+                                    await addItemsToUser(userId);
+
+                                    msg.reply(`Card with code ${codeToRemove} has been removed from your inventory, and you received items.`);
+                                }
+                            });
+                        }
+                    }
                 });
-              }
             }
-          });
         }
-      }
     });
   } else if (msg.content === 'mitems') {
     const userId = msg.author.id;
-  
+
     // Fetch items from user_items table
     const fetchItemsQuery = 'SELECT * FROM user_items WHERE user_id = ?';
     const fetchItemsValues = [userId];
-  
+
     connection.query(fetchItemsQuery, fetchItemsValues, (fetchErr, fetchResults) => {
-      if (fetchErr) {
-        console.error('Error fetching items from the database:', fetchErr.message);
-      } else {
-        if (fetchResults.length === 0) {
-          msg.reply('You have no items in your inventory.');
+        if (fetchErr) {
+            console.error('Error fetching items from the database:', fetchErr.message);
         } else {
-          // Build an embedded message with items and emojis
-          const embed = new EmbedBuilder()
-            .setColor('#0099ff')
-            .setTitle(`${msg.author.username}'s Inventory`)
-            .setDescription('Here are your items:')
-            .addFields(
-              fetchResults.map((item) => ({
-                name: `${itemEmojis[item.item_type] || '❓'} ${item.item_type}`,
-                value: `Amount: ${item.item_amount}`,
-                inline: true,
-              }))
-            )
-          
-          msg.reply({ embeds: [embed] });
+            if (fetchResults.length === 0) {
+                msg.reply('You have no items in your inventory.');
+            } else {
+                // Build an embedded message with items and emojis
+                const embed = new EmbedBuilder()
+                    .setColor('#0099ff')
+                    .setTitle(`${msg.author.username}'s Inventory`)
+                    .setDescription('Here are your items:')
+                    .addFields(
+                        fetchResults.map((item) => ({
+                            name: `${itemEmojis[item.item_type] || '❓'} ${item.item_type}`,
+                            value: `Amount: ${item.item_amount}`,
+                            inline: true,
+                        }))
+                    );
+
+                msg.reply({ embeds: [embed] });
+            }
         }
-      }
     });
   } else if (msg.content === 'mshop') {
     const embed = new EmbedBuilder()
@@ -780,7 +740,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         }))
       )
       .setImage('https://i.imgur.com/cIYuiG2.jpeg') // Dodaj ikonę sklepu
-      .setFooter({text:'Happy shopping!'})
+      .setFooter('Happy shopping!')
       .setTimestamp();
   
     msg.reply({ embeds: [embed] });
@@ -885,7 +845,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
       }
     });
   } else if (msg.content.startsWith('maddmoderator')) {
-    // Sprawdź, czy osoba wykonująca komendę ma odpowiednie uprawnienia
+    // Check if the user executing the command has appropriate permissions
     if (msg.author.id !== allowedUserId) {
       msg.reply('You do not have permission to use this command.');
       return;
@@ -897,7 +857,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
       const discordId = args[0];
       const discordUsertag = args[1];
 
-      // Odczytaj istniejącą zawartość pliku JSON
+      // Read existing content from the JSON file
       let moderatorsData;
       try {
         moderatorsData = JSON.parse(fs.readFileSync(jsonFilePath, 'utf8'));
@@ -906,14 +866,14 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         moderatorsData = [];
       }
 
-      // Sprawdź, czy istnieje już wpis o tym ID Discorda
+      // Check if there is already an entry with this Discord ID
       const existingModerator = moderatorsData.find((moderator) => moderator.id === discordId);
 
       if (!existingModerator) {
-        // Dodaj nowego moderatora
+        // Add a new moderator
         moderatorsData.push({ id: discordId, usertag: discordUsertag });
 
-        // Zapisz zmiany do pliku JSON
+        // Save changes to the JSON file
         fs.writeFileSync(jsonFilePath, JSON.stringify(moderatorsData, null, 2));
 
         msg.reply(`Moderator added successfully: ${discordUsertag} (${discordId}).`);
@@ -924,7 +884,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
       msg.reply('Invalid command format. Use !maddmoderator <discord_id> <discord_usertag>.');
     }
   } else if (msg.content.startsWith('msearch')) {
-    // Sprawdź, czy treść wiadomości zawiera przynajmniej jedno słowo po komendzie
+    // Check if the message content contains at least one word after the command
     const args = msg.content.slice('msearch'.length).trim().split(' ');
 
     if (args.length < 1) {
@@ -932,19 +892,19 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         return;
     }
 
-    // Pobierz frazę wyszukiwania z treści wiadomości
+    // Get the search phrase from the message content
     const searchTerm = args.join(' ');
 
-    // Sprawdź, czy istnieje co najmniej jedna postać
+    // Check if there is at least one character
     if (characters.length === 0) {
         msg.reply('No characters found.');
         return;
     }
 
-    // Utwórz wyrażenie regularne do wyszukiwania nazwy postaci
+    // Create a regular expression for searching character names
     const regex = new RegExp(searchTerm, 'i');
 
-    // Filtruj postacie, których nazwa pasuje do wprowadzonej frazy
+    // Filter characters whose name matches the entered phrase
     const filteredCharacters = characters.filter(
         (char) => char.name && regex.test(char.name.trim())
     );
@@ -954,35 +914,35 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     } else {
         const slicedCharacters = filteredCharacters.slice(0, 10);
 
-        // Jeżeli jest jedna pasująca postać, wyślij Embed
+        // If there is one matching character, send an Embed
         if (slicedCharacters.length === 1) {
             const character = slicedCharacters[0];
 
-            // Tworzymy Embed
+            // Create the Embed
             const embed = new EmbedBuilder()
                 .setTitle('Selected Character')
                 .setDescription(`**Name:** ${character.name}\n**Series:** ${character.series}\n**Base Element:** ${character.baseElement}`)
                 .setImage(character.url);
 
-            // Dodaj opis, jeśli dostępny
+            // Add description if available
             if (character.description) {
                 embed.setDescription(`**Name:** ${character.name}\n**Series:** ${character.series}\n**Base Element:** ${character.baseElement}\n\n**Description:** ${character.description}`);
             } else {
                 embed.addFields({ name: 'Description', value: 'No description available.' });
             }
 
-            // Wysyłamy Embed
+            // Send the Embed
             msg.reply({ embeds: [embed] });
         } else {
-            // Jeżeli jest więcej niż jedna pasująca postać, wyślij listę z numerami
+            // If there are more than one matching characters, send a list with numbers
             const characterList = slicedCharacters.map(
                 (char, index) => `${index + 1}. ${char.name} from ${char.series}`
             );
 
-            // Wyślij listę postaci
+            // Send the list of characters
             msg.reply(`Multiple characters found. Please choose a number:\n${characterList.join('\n')}`);
 
-            // Utwórz kolektor reakcji
+            // Create a reaction collector
             const collector = msg.channel.createMessageCollector({
                 filter: (response) => response.author.id === msg.author.id && /^\d+$/.test(response.content),
                 time: 15000,
@@ -993,20 +953,20 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
                 const choice = parseInt(response.content) - 1;
                 const selectedCharacter = slicedCharacters[choice];
 
-                // Tworzymy Embed
+                // Create the Embed
                 const embed = new EmbedBuilder()
                     .setTitle('Selected Character')
                     .setDescription(`**Name:** ${selectedCharacter.name}\n**Series:** ${selectedCharacter.series}\n**Base Element:** ${selectedCharacter.baseElement}`)
                     .setImage(selectedCharacter.url);
 
-                // Dodaj opis, jeśli dostępny
+                // Add description if available
                 if (selectedCharacter.description) {
                     embed.setDescription(`**Name:** ${selectedCharacter.name}\n**Series:** ${selectedCharacter.series}\n**Base Element:** ${selectedCharacter.baseElement}\n\n**Description:** ${selectedCharacter.description}`);
                 } else {
                     embed.addFields({ name: 'Description', value: 'No description available.' });
                 }
 
-                // Wysyłamy Embed
+                // Send the Embed
                 msg.reply({ embeds: [embed] });
             });
 
@@ -1023,7 +983,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     const channel_ = msg.channel.id;
     const serverChannel_ = msg.guild.channels.cache.get(channel_);
 
-    // Sprawdź, czy wprowadzono poprawną liczbę argumentów
+    // Check if the correct number of arguments is provided
     const args = msg.content.slice('madddescription'.length).trim().split(' ');
 
     console.log('Debug info:');
@@ -1044,17 +1004,17 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     let names1 = null;
 
     for (let i = 0; i < characters.length; i++) {
-      const characterName = characters[i].name.toLowerCase();
-      const characterSeries = characters[i].series.toLowerCase();
-  
-      if (cardName === characterName && characterSeries.includes(cardSeries)) {
-          matchedCharacters.push(characters[i]);
-  
-          // Przypisz bezpośrednio do globalData, aby uniknąć problemów z names1
-          globalData.cardName0 = characters[i].name.toLowerCase();
-          globalData.cardSeries0 = characters[i].series.toLowerCase();
-      }
-  }
+        const characterName = characters[i].name.toLowerCase();
+        const characterSeries = characters[i].series.toLowerCase();
+    
+        if (cardName === characterName && characterSeries.includes(cardSeries)) {
+            matchedCharacters.push(characters[i]);
+    
+            // Assign directly to globalData to avoid issues with names1
+            globalData.cardName0 = characters[i].name.toLowerCase();
+            globalData.cardSeries0 = characters[i].series.toLowerCase();
+        }
+    }
 
     if (matchedCharacters.length === 0) {
         msg.reply('No matching characters found. Please check your input.');
@@ -1066,49 +1026,46 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         .map((char) => `${char.name} from ${char.series}`)
         .join('\n');
 
-        const confirmationEmbed = new EmbedBuilder()
+    const confirmationEmbed = new EmbedBuilder()
         .setTitle(`Is this the character to which you want to add a description?`)
         .setDescription(`***${matchedCharactersList}*** \n If yes, you have 1 minute to send a description as next message. If the character does not match, type "no" and use the command again.`)
         .setColor('#3498db');
     
     msg.channel.send({ embeds: [confirmationEmbed] });
     
-    // Oczekuj na odpowiedź od użytkownika
+    // Wait for user response
     const filter = (response) => response.author.id === msg.author.id;
-    const collector = msg.channel.createMessageCollector({filter: filter,  time: 60000 });
+    const collector = msg.channel.createMessageCollector({ filter: filter, time: 60000 });
     
     const foundCard = characters.find((card) => {
-      const isCardNameMatch = card.name.toLowerCase() === cardName.toLowerCase();
-      const isSeriesMatch = card.series && card.series.toLowerCase().includes(cardSeries);
+        const isCardNameMatch = card.name.toLowerCase() === cardName.toLowerCase();
+        const isSeriesMatch = card.series && card.series.toLowerCase().includes(cardSeries);
     
-      return isCardNameMatch && isSeriesMatch;
-  });
-
+        return isCardNameMatch && isSeriesMatch;
+    });
 
     collector.on('collect', (response) => {
         userResponse = response.content.trim();
-    
+
         // Check if the message is sent by the bot
         if (response.author.bot) {
             return;
         }
-    
         
-    
         if (!foundCard) {
             msg.reply('The specified card does not exist.');
             return;
         }
-    
-        // Sprawdź, czy opis dla danej karty już istnieje
+
+        // Check if a description for the card already exists
         const existingDescription = foundCard.description;
-    
+
         if (existingDescription) {
             msg.reply('Description already exists for the specified card.');
             return;
         }
 
-        // Sprawdź, czy użytkownik już dodał opis tej karty
+        // Check if the user has already added a description for this card
         const existingRequestQuery = 'SELECT * FROM user_data WHERE user_id = ? AND card_name = ? AND channel_id = ?';
         connection.query(existingRequestQuery, [userId, names1, channel_], (requestErr, requestResults) => {
             if (requestErr) {
@@ -1120,7 +1077,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
                 msg.reply('You have already requested a description for this card. Please wait for the admin to review.');
                 return;
             }*/
-            // Jeżeli użytkownik nie chce dodawać opisu
+            // If the user does not want to add a description
             if (userResponse.toLowerCase() === 'no') {
                 msg.reply('Adding description canceled.');
                 collector.stop();
@@ -1129,7 +1086,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
                 msg.reply('Description is too short!');
                 return;
             } else if (userResponse.length >= 20) {
-                // Jeżeli użytkownik wysłał opis (minimum 20 znaków), wyślij na określony kanał
+                // If the user sent a description (minimum 20 characters), send it to the specified channel
                 const serverChannel = msg.guild.channels.cache.get(serverChannelId);
 
                 if (serverChannel) {
@@ -1165,13 +1122,13 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
                             embeds: [descriptionEmbed],
                             components: [row]
                         })
-                            .then(() => {
-                                msg.reply('Description request sent successfully! Wait for an admin to accept or decline it!');
-                            })
-                            .catch((error) => {
-                                console.error('Error sending message:', error);
-                                msg.reply(`An error occurred while adding the description: ${error.message}`);
-                            });
+                        .then(() => {
+                            msg.reply('Description request sent successfully! Wait for an admin to accept or decline it!');
+                        })
+                        .catch((error) => {
+                            console.error('Error sending message:', error);
+                            msg.reply(`An error occurred while adding the description: ${error.message}`);
+                        });
                     } else {
                         msg.reply('Description cannot be empty. Adding description canceled.');
                     }
@@ -1181,17 +1138,17 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
                 console.log(`desc:${description_}`)
                 // Store data in the database
                 const storeDataQuery = 'INSERT INTO user_data (user_id, channel_id, card_name, usertag, description) VALUES (?, ?, ?, ?, ?)';
-    connection.query(storeDataQuery, [userId, channel_, names1, usertag, description_], (storeErr) => {
-        if (storeErr) {
-            console.error('Error storing user data in the database:', storeErr.message);
-            return;
-        }
-        // Add the description to the character in the characters array
-    foundCard.description = description_;
+                connection.query(storeDataQuery, [userId, channel_, names1, usertag, description_], (storeErr) => {
+                    if (storeErr) {
+                        console.error('Error storing user data in the database:', storeErr.message);
+                        return;
+                    }
+                    // Add the description to the character in the characters array
+                    foundCard.description = description_;
 
-    // Optionally, update the 'imageUrls.json' file with the modified characters array
-    fs.writeFileSync('imageUrls.json', JSON.stringify(characters, null, 2));
-    });
+                    // Optionally, update the 'imageUrls.json' file with the modified characters array
+                    fs.writeFileSync('imageUrls.json', JSON.stringify(characters, null, 2));
+                });
                 collector.stop();
             }
         });
@@ -1201,8 +1158,7 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         if (reason === 'time') {
             msg.reply('Command timed out. Please try again.');
         }
-    });
-    
+    });    
   } else if (msg.content.toLowerCase().startsWith('mtrade')) {
     const partialUsername = msg.content.slice('mtrade'.length).trim();
 
@@ -1233,23 +1189,22 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         return msg.reply(`No similar username found for "${partialUsername}".`);
     }
 
-    const commandAuthor = msg.author.username; // Nazwa gracza, który użył komendy
+    const commandAuthor = msg.author.username;
     console.log(mostSimilarUsername)
     const tradeEmbed = new EmbedBuilder()
-        .setColor('#778899') // Szary kolor dla początkowej wiadomości o handlu
+        .setColor('#778899')
         .setTitle('Trade Request')
-        //.setDescription(`Do you want to accept trade with ${mostSimilarUsername.toString()}?`)
         .setTimestamp();
-        const user = msg.guild.members.cache.find(member => member.user.username === mostSimilarUsername);
-        const tradeTarget = msg.guild.members.cache.find(member => member.displayName === mostSimilarUsername);
-        if (tradeTarget) {
-          
-            const tradeTargetTag = tradeTarget.toString(); // Formatuje obiekt użytkownika do postaci pingu
-            tradeEmbed.setDescription(`${tradeTargetTag} do you want to trade with <@${msg.author.id}>?`);
-        } else {
-          const userID = user.user.id;
-            tradeEmbed.setDescription(`<@${userID}> do you want to trade with <@${msg.author.id}>?`);
-        }
+
+    const user = msg.guild.members.cache.find(member => member.user.username === mostSimilarUsername);
+    const tradeTarget = msg.guild.members.cache.find(member => member.displayName === mostSimilarUsername);
+    if (tradeTarget) {
+        const tradeTargetTag = tradeTarget.toString();
+        tradeEmbed.setDescription(`${tradeTargetTag} do you want to trade with <@${msg.author.id}>?`);
+    } else {
+        const userID = user.user.id;
+        tradeEmbed.setDescription(`<@${userID}> do you want to trade with <@${msg.author.id}>?`);
+    }
 
     if (lastTradeAuthor === msg.author.username) {
         if (tradeMessage && !tradeMessage.deleted) {
@@ -1265,16 +1220,15 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
     await tradeMessage.react('✅');
     const declineReaction = await tradeMessage.react('❌');
 
-    // Obsługa reakcji
-    
+    // Reaction handling
 
-    // Obsługa reakcji na akceptację
+    // Reaction handling for acceptance
     const filterAccept = (reaction, user) => reaction.emoji.name === '✅' && (user.username === mostSimilarUsername || user.id === debugUserId);
     const acceptCollector = tradeMessage.createReactionCollector({ filter: filterAccept, time: 60000 });
 
     acceptCollector.on('collect', async (reaction, user) => {
         const provideItemsEmbed1 = new EmbedBuilder()
-            .setColor('#778899') // Niebieski lub szary kolor dla wiadomości z przedmiotami
+            .setColor('#778899')
             .setTitle('Provide Items')
             .setDescription('Please provide item codes or names.');
 
@@ -1285,145 +1239,123 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
         const lockReaction = await provideItemsMessage.react('🔒');
 
         if (tradeMessage && !tradeMessage.deleted) {
-            await tradeMessage.reactions.removeAll().catch(console.error); // Usuń wszystkie reakcje z pierwszej wiadomości
+            await tradeMessage.reactions.removeAll().catch(console.error);
         }
 
         const filterLockButton = (reaction, user) => reaction.emoji.name === '🔒' && (user.id === mostSimilarUsername || user.id ===msg.author.id || user.id === debugUserId);
-    const lockButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterLockButton, time: 60000 });
-    const removingLockButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterLockButton, time: 60000, dispose: true });
+        const lockButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterLockButton, time: 60000 });
+        const removingLockButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterLockButton, time: 60000, dispose: true });
 
-    removingLockButtonCollector.on('remove', async (reaction, user) => { 
-                  if (user.id === debugUserId) {
-                    lockClicks = lockClicks - 2;
-                    console.log('removed')
-                    if (lockClicks < 0) lockClicks = 0; // Upewnij się, że liczba kliknięć nie spadła poniżej zera
-                }
-                  else if (user.username === mostSimilarUsername || user.usrname === msg.author.username) {
-                      lockClicks = lockClicks - 1; // Odejmij 1 od liczby kliknięć na klodki
-                      console.log('removed')
-                      if (lockClicks < 0) lockClicks = 0; // Upewnij się, że liczba kliknięć nie spadła poniżej zera
-                  } 
-              });
-              lockButtonCollector.on('collect', async (reaction, user) => {
-                if (user.username === mostSimilarUsername || user.id === debugUserId || user.username === msg.user.username) {
-                    // Przechowanie aktualnego tytułu i opisu
-                    const currentTitle = provideItemsMessage.embeds[0].title;
-                    const currentDescription = provideItemsMessage.embeds[0].description;
-            
-                    const provideItemsEmbed = new EmbedBuilder()
-                        .setColor('#FFA500') // Pomarańczowy kolor dla wiadomości z przedmiotami
-                        .setTitle(currentTitle) // Ustawienie aktualnego tytułu
-                        .setDescription(currentDescription); // Ustawienie aktualnego opisu
-            
-                    
-            
-                    if (user.id === debugUserId) {
-                        lockClicks = lockClicks + 2;
-                    } else if (user.username === mostSimilarUsername || user.username === msg.author.username) {
-                        lockClicks = lockClicks + 1;
-                    }
-            
-                    if (lockClicks > 1) {
-                        provideItemsMessage = await provideItemsMessage.edit({ embeds: [provideItemsEmbed] }).catch(console.error);
-            
-                        await provideItemsMessage.react('✅');
-                        await provideItemsMessage.react('❌');
-                        const lockReaction = await provideItemsMessage.react('🔒');
-                    }
-            
-                    console.log(lockClicks);
-                }
-
-
-
-                if (provideItemsMessage) {
-                  const acceptCollector1 = provideItemsMessage.createReactionCollector({ filter: filterAccept1, time: 60000 });
-              
-                  acceptCollector1.on('collect', async (reaction, user) => {
-                      const guild = client.guilds.cache.get(reaction.message.guild.id);
-                      let member = guild.members.cache.find(member => member.user.username === mostSimilarUsername || member.displayName === mostSimilarUsername);
-                      if (!member) {
-                          member = guild.members.cache.find(member => member.user.tag === mostSimilarUsername);
-                      }
-                      const userID = member ? member.user.id : null;
-                      try {
-                          // Sprawdź, czy kody kart istnieją w embedzie
-                          if (provideItemsMessage && provideItemsMessage.embeds.length > 0) {
-                              const cardCodes = extractCardCodesFromEmbed(provideItemsMessage.embeds[0]);
-                              if (cardCodes && cardCodes.length > 0) {
-                                  // Pobierz ID użytkownika, którego dotyczy transakcja
-                                  console.log(msg.author.id, userID)
-                                  const authorId = msg.author.id;
-                                  const mentionedUserId = mostSimilarUsername ? userID : null;
-                                  const newUserId = authorId === user.id ? mentionedUserId : authorId;
-              
-                                  // Sprawdź, czy istnieją identyfikatory użytkowników w bazie danych
-                                  if (newUserId && await isUserExists(newUserId)) {
-                                      // Przełącz właściciela kart na nowego użytkownika
-                                      await switchOwnershipForCards(cardCodes, newUserId);
-              
-                                      // Usuń wiadomość "provide items" i wyślij potwierdzenie
-                                      await provideItemsMessage.delete();
-                                      await msg.channel.send('The cards have been successfully transferred between users.');
-                                  } else {
-                                      await msg.channel.send('Invalid user ID.');
-                                  }
-                              } else {
-                                  await msg.channel.send('Unable to extract the card codes from the embed.');
-                              }
-                          } else {
-                              await msg.channel.send('There is no embed in the "provide items" message.');
-                          }
-                      } catch (error) {
-                          console.error('Error processing the accept reaction:', error);
-                          await msg.channel.send('An error occurred while processing the accept reaction.');
-                      }
-                  });
-              } else {
-                  console.error('provideItemsMessage is null');
-                  // Handle this case accordingly
-              }
-    });
-
-
-    const filterAcceptButton = (reaction, user) => reaction.emoji.name === '✅' && lockClicks > 1;
-    const acceptButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterAcceptButton, time: 60000 });
-
-    acceptButtonCollector.on('collect', async (reaction, user) => {
-        if (user.username === mostSimilarUsername || user.id === debugUserId) {
-          provideItemsEmbed = new EmbedBuilder();
-
-    // Skopiuj istniejący kolor z Embeda
-    const currentColor = provideItemsMessage.embeds[0].color;
-
-    // Ustaw nowy kolor na zielony
-    provideItemsEmbed.setColor('#00FF00');
-
-    // Ustaw istniejący opis Embeda
-    provideItemsEmbed.setDescription(provideItemsMessage.embeds[0].description);
-
-            await provideItemsMessage.edit({ embeds: [provideItemsEmbed] }).catch(console.error);
-
-            if (tradeMessage && !tradeMessage.deleted) {
-                await tradeMessage.reactions.removeAll().catch(console.error); // Usuń wszystkie reakcje z pierwszej wiadomości
+        removingLockButtonCollector.on('remove', async (reaction, user) => { 
+            if (user.id === debugUserId) {
+                lockClicks = lockClicks - 2;
+                console.log('removed')
+                if (lockClicks < 0) lockClicks = 0;
             }
-        }
-    });
+            else if (user.username === mostSimilarUsername || user.usrname === msg.author.username) {
+                lockClicks = lockClicks - 1;
+                console.log('removed')
+                if (lockClicks < 0) lockClicks = 0;
+            } 
+        });
+        lockButtonCollector.on('collect', async (reaction, user) => {
+            if (user.username === mostSimilarUsername || user.id === debugUserId || user.username === msg.user.username) {
+                const currentTitle = provideItemsMessage.embeds[0].title;
+                const currentDescription = provideItemsMessage.embeds[0].description;
+
+                const provideItemsEmbed = new EmbedBuilder()
+                    .setColor('#FFA500')
+                    .setTitle(currentTitle)
+                    .setDescription(currentDescription);
+
+                if (user.id === debugUserId) {
+                    lockClicks = lockClicks + 2;
+                } else if (user.username === mostSimilarUsername || user.username === msg.author.username) {
+                    lockClicks = lockClicks + 1;
+                }
+
+                if (lockClicks > 1) {
+                    provideItemsMessage = await provideItemsMessage.edit({ embeds: [provideItemsEmbed] }).catch(console.error);
+
+                    await provideItemsMessage.react('✅');
+                    await provideItemsMessage.react('❌');
+                    const lockReaction = await provideItemsMessage.react('🔒');
+                }
+
+                console.log(lockClicks);
+            }
+
+            if (provideItemsMessage) {
+                const acceptCollector1 = provideItemsMessage.createReactionCollector({ filter: filterAccept1, time: 60000 });
+
+                acceptCollector1.on('collect', async (reaction, user) => {
+                    const guild = client.guilds.cache.get(reaction.message.guild.id);
+                    let member = guild.members.cache.find(member => member.user.username === mostSimilarUsername || member.displayName === mostSimilarUsername);
+                    if (!member) {
+                        member = guild.members.cache.find(member => member.user.tag === mostSimilarUsername);
+                    }
+                    const userID = member ? member.user.id : null;
+                    try {
+                        if (provideItemsMessage && provideItemsMessage.embeds.length > 0) {
+                            const cardCodes = extractCardCodesFromEmbed(provideItemsMessage.embeds[0]);
+                            if (cardCodes && cardCodes.length > 0) {
+                                const authorId = msg.author.id;
+                                const mentionedUserId = mostSimilarUsername ? userID : null;
+                                const newUserId = authorId === user.id ? mentionedUserId : authorId;
+
+                                if (newUserId && await isUserExists(newUserId)) {
+                                    await switchOwnershipForCards(cardCodes, newUserId);
+                                    await provideItemsMessage.delete();
+                                    await msg.channel.send('The cards have been successfully transferred between users.');
+                                } else {
+                                    await msg.channel.send('Invalid user ID.');
+                                }
+                            } else {
+                                await msg.channel.send('Unable to extract the card codes from the embed.');
+                            }
+                        } else {
+                            await msg.channel.send('There is no embed in the "provide items" message.');
+                        }
+                    } catch (error) {
+                        console.error('Error processing the accept reaction:', error);
+                        await msg.channel.send('An error occurred while processing the accept reaction.');
+                    }
+                });
+            } else {
+                console.error('provideItemsMessage is null');
+            }
+        });
+
+        const filterAcceptButton = (reaction, user) => reaction.emoji.name === '✅' && lockClicks > 1;
+        const acceptButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterAcceptButton, time: 60000 });
+
+        acceptButtonCollector.on('collect', async (reaction, user) => {
+            if (user.username === mostSimilarUsername || user.id === debugUserId) {
+                provideItemsEmbed = new EmbedBuilder();
+                const currentColor = provideItemsMessage.embeds[0].color;
+                provideItemsEmbed.setColor('#00FF00');
+                provideItemsEmbed.setDescription(provideItemsMessage.embeds[0].description);
+
+                await provideItemsMessage.edit({ embeds: [provideItemsEmbed] }).catch(console.error);
+
+                if (tradeMessage && !tradeMessage.deleted) {
+                    await tradeMessage.reactions.removeAll().catch(console.error);
+                }
+            }
+        });
     });
 
-    // Zmiana koloru wiadomości o handlu na zielony po kliknięciu accept
     const filterAcceptButton = (reaction, user) => reaction.emoji.name === '✅';
     const acceptButtonCollector = tradeMessage.createReactionCollector({ filter: filterAcceptButton, time: 60000 });
 
     acceptButtonCollector.on('collect', async (reaction, user) => {
         if (user.username === mostSimilarUsername || user.id === debugUserId) {
-          
-            tradeEmbed.setColor('#00FF00'); // Zmiana koloru na zielony
-            tradeEmbed.setDescription(`Trade with ${mostSimilarUsername} has been accepted.`); // Zmiana opisu
+            tradeEmbed.setColor('#00FF00');
+            tradeEmbed.setDescription(`Trade with ${mostSimilarUsername} has been accepted.`);
             await tradeMessage.edit({ embeds: [tradeEmbed] }).catch(console.error);
 
             if (tradeMessage && !tradeMessage.deleted) {
-                await tradeMessage.reactions.removeAll().catch(console.error); // Usuń wszystkie reakcje z pierwszej wiadomości
+                await tradeMessage.reactions.removeAll().catch(console.error);
             }
         }
     });
@@ -1433,349 +1365,188 @@ connection.query(checkUserQuery, checkUserValues, (err, userResults) => {
 
     declineButtonCollector.on('collect', async (reaction, user) => {
         if (user.username === mostSimilarUsername || user.id === debugUserId) {
-            tradeEmbed.setColor('#FF0000'); // Zmiana koloru na czerwony
+            tradeEmbed.setColor('#FF0000');
             tradeEmbed.setTitle('Canceled');
-            tradeEmbed.setDescription(`Trade with ${mostSimilarUsername} has been canceled.`); // Zmiana opisu
+            tradeEmbed.setDescription(`Trade with ${mostSimilarUsername} has been canceled.`);
             await tradeMessage.edit({ embeds: [tradeEmbed] }).catch(console.error);
 
             if (tradeMessage && !tradeMessage.deleted) {
-                await tradeMessage.reactions.removeAll().catch(console.error); // Usuń wszystkie reakcje z pierwszej wiadomości
+                await tradeMessage.reactions.removeAll().catch(console.error);
             }
         }
-        
     });
+
     const filterAccept1 = (reaction, user) => reaction.emoji.name === '✅' && (user.username === mostSimilarUsername || user.id === debugUserId);
 
-
-
-    // Stwórz nowy MessageCollector
     const filterCodeMessages = (msg) => isValidCardCode(msg.content.trim()) && !msg.author.bot;
     const codeCollector = msg.channel.createMessageCollector({ filter: filterCodeMessages, time: 60000 });
-    
-    // Obsługa nowych wiadomości
+
     codeCollector.on('collect', async (message) => {
-      const cardCode = message.content.trim();
-      const userId = message.author.id;
-      const mentionedUserId = mostSimilarUsername ? mostSimilarUsername.id : null;
-  
-      try {
-          // Sprawdź czy kod karty istnieje w bazie danych dla danego użytkownika
-          const card = await getCardFromDatabase(cardCode, mentionedUserId ? mentionedUserId : userId);
-  
-          if (card) {
-              // Jeśli karta istnieje, dodaj ją do odpowiedniej tablicy kodów kart
-              if (mentionedUserId === userId) {
-                  player1CardCodes.push(cardCode);
-              } else {
-                  player2CardCodes.push(cardCode);
-              }
-  
-              // Aktualizacja wiadomości "Provide Items" po dodaniu nowego kodu karty
-              await updateProvideItemsMessage();
-          } else {
-              // Jeśli karta nie istnieje w bazie danych, wyświetl odpowiedni komunikat
-              const errorMessage = 'The provided card code does not exist in the user inventory.';
-              await message.channel.send(errorMessage);
-          }
-      } catch (error) {
-          console.error('Error fetching card from database:', error);
-          // Wyświetl komunikat błędu
-          const errorMessage = 'An error occurred while fetching the card from the database.';
-          await message.channel.send(errorMessage);
-      }
-  });
-    
+        const cardCode = message.content.trim();
+        const userId = message.author.id;
+        const mentionedUserId = mostSimilarUsername ? mostSimilarUsername.id : null;
 
-    
-  async function updateProvideItemsMessage() {
-    // Wygeneruj nowy Embed na podstawie obecnych kodów kart
-    const newEmbed = generateProvideItemsEmbed();
+        try {
+            const card = await getCardFromDatabase(cardCode, mentionedUserId ? mentionedUserId : userId);
 
-    // Jeśli wiadomość już istnieje, zaktualizuj ją, w przeciwnym razie, wyślij nową wiadomość
-    if (provideItemsMessage) {
-        await provideItemsMessage.edit({ embeds: [newEmbed] });
-    } else {
-        provideItemsMessage = await msg.channel.send({ embeds: [newEmbed] });
+            if (card) {
+                if (mentionedUserId === userId) {
+                    player1CardCodes.push(cardCode);
+                } else {
+                    player2CardCodes.push(cardCode);
+                }
+
+                await updateProvideItemsMessage();
+            } else {
+                const errorMessage = 'The provided card code does not exist in the user inventory.';
+                await message.channel.send(errorMessage);
+            }
+        } catch (error) {
+            console.error('Error fetching card from database:', error);
+            const errorMessage = 'An error occurred while fetching the card from the database.';
+            await message.channel.send(errorMessage);
+        }
+    });
+
+    async function updateProvideItemsMessage() {
+        const newEmbed = generateProvideItemsEmbed();
+
+        if (provideItemsMessage) {
+            await provideItemsMessage.edit({ embeds: [newEmbed] });
+        } else {
+            provideItemsMessage = await msg.channel.send({ embeds: [newEmbed] });
+        }
     }
-}
 
-
-    
-
-
-    lastTradeAuthor = msg.author.username
-
+    lastTradeAuthor = msg.author.username;
   } else if (msg.content.toLowerCase().startsWith('mdamage')) {
-    // Assuming you have an image URL for the damage formula
     const damageFormulaImageUrl = 'https://i.imgur.com/4b1Hfb9.png';
 
-    // Creating the embed
     const embed = new EmbedBuilder()
-    .setTitle('Damage Formula')
-    .setDescription(`Here's the damage formula:`)
-    .addFields(
-      { 
-          name: '**Element Interactions** 🌟', 
-          value: `
-         
-          1. 🔥 ***Fire***: Strong against 🌬️ [Wind], weak against ⚡ [Electricity].
-2. 🌬️ ***Wind***: Strong against 🥊 [Fighting], weak against 🔥 [Fire].
-3. 🥊 ***Fighting***: Strong against 🗿 [Earth], weak against 🌬️ [Wind].
-4. 🗿 ***Earth***: Strong against ⚡ [Electricity], weak against 🥊 [Fighting].
-5. ⚡ ***Electricity***: Strong against 💧 [Water], weak against 🗿 [Earth].
-6. 💧 ***Water***: Strong against 🔥 [Fire], weak against ⚡ [Electricity].
+        .setTitle('Damage Formula')
+        .setDescription(`Here's the damage formula:`)
+        .addFields(
+            { 
+                name: '**Element Interactions** 🌟', 
+                value: `
+                1. 🔥 ***Fire***: Strong against 🌬️ [Wind], weak against ⚡ [Electricity].
+                2. 🌬️ ***Wind***: Strong against 🥊 [Fighting], weak against 🔥 [Fire].
+                3. 🥊 ***Fighting***: Strong against 🗿 [Earth], weak against 🌬️ [Wind].
+                4. 🗿 ***Earth***: Strong against ⚡ [Electricity], weak against 🥊 [Fighting].
+                5. ⚡ ***Electricity***: Strong against 💧 [Water], weak against 🗿 [Earth].
+                6. 💧 ***Water***: Strong against 🔥 [Fire], weak against ⚡ [Electricity].
+                
+                Additionally:
+                - ⚙️ ***Metal***: Strong against all basic elements.
+                - ☀️ ***Light*** and 🌑 ***Dark***: Strong against each other.
+                - 🛡️ ***Neutral***: No specific strengths or weaknesses.
+                - 💥 ***Overpowered***: Dominates all elements except Neutral.
+                
+                Master the strategy of elemental interactions to dominate the battlefield!
+                `,
+                inline: false
+            }
+        )
+        .setImage(damageFormulaImageUrl)
+        .setColor('#0099ff');
 
-Additionally:
-- ⚙️ ***Metal***: Strong against all basic elements.
-- ☀️ ***Light*** and 🌑 ***Dark***: Strong against each other.
-- 🛡️ ***Neutral***: No specific strengths or weaknesses.
-- 💥 ***Overpowered***: Dominates all elements except Neutral.
-
-Master the strategy of elemental interactions to dominate the battlefield!
-          `,
-          inline: false
-      }
-  )
-    .setImage(damageFormulaImageUrl)
-    .setColor('#0099ff');
-
-    // Sending the embed
     msg.channel.send({ embeds: [embed] });
-}
-
-  
-
-
-async function handleTradeRequest(userId, partialUsername) {
-    const commandAuthor = msg.author.username;
-
-    if (lastCommandAuthor !== commandAuthor) {
-        if (tradeMessage) {
-            await tradeMessage.delete();
-        }
-        if (provideItemsMessage) {
-            await provideItemsMessage.delete();
-        }
-    }
-
-    const tradeEmbed = new EmbedBuilder()
-        .setColor('#778899') 
-        .setTitle('Trade Request')
-        .setDescription(`Do you want to accept trade with ${partialUsername}?`)
-        .setTimestamp();
-
-    tradeMessage = await msg.channel.send({ embeds: [tradeEmbed] });
-
-    await tradeMessage.react('✅');
-    const declineReaction = await tradeMessage.react('❌');
-
-    lastCommandAuthor = commandAuthor;
-    tradeRequestHandled = true; // Ustawienie flagi na true
-}
-  
-
-
-
-
-
-
-
-
-
-
-
-  
-  
-  
-  
-  
+  }
 });
 
+// Interaction event
 client.on('interactionCreate', async (interaction) => {
-  
   const userId = interaction.user.id;
 
   if (interaction.customId === 'cancel') {
-    const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
-    await interaction.deferUpdate();
+      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
+      await interaction.deferUpdate();
 
-    const isMod = await isModerator(userId);
-    if (!isMod) {
-      return interaction.reply({
-        content: 'You do not have permission to perform this action.',
-        ephemeral: true,
-      });
-    }
-
-    // Fetch data from the database based on the message content
-    const serverChannelId1 = '1203803520998969344';
-const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
-
-const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
-connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
-  if (err) {
-    console.error('Error fetching user data from the database:', err.message);
-    return;
-  }
-
-  if (results.length === 0) {
-    return interaction.followUp('No data found for the specified message.');
-  }
-
-  const data = results[0];
-  const { usertag, card_name, user_id } = data;
-
-  // Use the fetched data to send a reply
-  const replyContent = ` <@${user_id}> your card description has been declined by a moderator. Make sure your description follows the rules! If the description is inaccurate, contains offensive language, or is too long, it will be declined. Thank you and good luck next time!`;
-  return await serverChannel1.send(replyContent);
-  //of ***${card_name}*** 
-  // Optionally, you can delete the data from the database after using it
-  const deleteDataQuery = 'DELETE FROM user_data WHERE description = ?';
-  connection.query(deleteDataQuery, [descriptionValue], (deleteErr) => {
-    if (deleteErr) {
-      console.error('Error deleting user data from the database:', deleteErr.message);
-    }
-  });
-});
-  }else if (interaction.customId === 'confirm') {
-    
-    const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
-    await interaction.deferUpdate();
-
-    const isMod = await isModerator(userId);
-    if (!isMod) {
-        return interaction.reply({
-            content: 'You do not have permission to perform this action.',
-            ephemeral: true,
-        });
-    }
-
-    
-
-    const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
-    connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
-        if (err) {
-            console.error('Error fetching user data from the database:', err.message);
-            return;
-        }
-
-        if (results.length === 0) {
-            return interaction.followUp({
-              content: 'No data found for the specified message.',
-              ephemeral: true
+      const isMod = await isModerator(userId);
+      if (!isMod) {
+          return interaction.reply({
+              content: 'You do not have permission to perform this action.',
+              ephemeral: true,
           });
-        }
+      }
 
-        const data = results[0];
-        const { usertag, card_name, user_id, series } = data;
+      const serverChannelId1 = '1203803520998969344';
+      const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
 
-        // Read the existing JSON file
-        const imageUrlsPath = 'imageUrls.json';
-        let imageUrlsData = JSON.parse(fs.readFileSync(imageUrlsPath, 'utf8'));
-        
-        const compareIgnoreCase = (str1, str2) => str1.localeCompare(str2, undefined, { sensitivity: 'base' });
-        
-        // Check if the card with the specified name exists
-       /* const existingCardIndex = imageUrlsData.findIndex(card => {
-          const isCardNameMatch = card.name.toLowerCase() === card_name.toLowerCase();
-          const isSeriesMatch = (card.series || '').toLowerCase() === (series || '').toLowerCase();
-  
-          return isCardNameMatch && isSeriesMatch;
+      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
+      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
+          if (err) {
+              console.error('Error fetching user data from the database:', err.message);
+              return;
+          }
+
+          if (results.length === 0) {
+              return interaction.followUp('No data found for the specified message.');
+          }
+
+          const data = results[0];
+          const { usertag, card_name, user_id } = data;
+
+          const replyContent = `<@${user_id}> your card description has been declined by a moderator. Make sure your description follows the rules! If the description is inaccurate, contains offensive language, or is too long, it will be declined. Thank you and good luck next time!`;
+          return await serverChannel1.send(replyContent);
       });
-      
-      if (existingCardIndex !== -1) {
-          // Check if the description already exists for the specified card
-          const existingDescription = imageUrlsData[existingCardIndex].description;
-      
-          if (!existingDescription || existingDescription === descriptionValue) {
-              
-              // Add the new entry
-              imageUrlsData[existingCardIndex].description = descriptionValue;
-              console.log(imageUrlsData[existingCardIndex].description)
-              console.log('existingCardIndex:', existingCardIndex);
-              // Update the JSON file
-              fs.writeFileSync(imageUrlsPath, JSON.stringify(imageUrlsData, null, 2));
+  } else if (interaction.customId === 'confirm') {
+      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
+      await interaction.deferUpdate();
 
-              
-              //${imageUrlsData[existingCardIndex].series}
-          } 
-      } */
-        const serverChannelId1 = '1203803520998969344';
-        const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
-        
-        const replyContent = `<@${user_id}> your card description has been accepted by a moderator. Congrats, you are now part of this project! Thank you!`;
-        await serverChannel1.send(replyContent);
-        
-    
+      const isMod = await isModerator(userId);
+      if (!isMod) {
+          return interaction.reply({
+              content: 'You do not have permission to perform this action.',
+              ephemeral: true,
+          });
+      }
 
-    });
-    
-}
+      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
+      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
+          if (err) {
+              console.error('Error fetching user data from the database:', err.message);
+              return;
+          }
 
+          if (results.length === 0) {
+              return interaction.followUp({
+                  content: 'No data found for the specified message.',
+                  ephemeral: true
+              });
+          }
 
+          const data = results[0];
+          const { usertag, card_name, user_id, series } = data;
 
+          const imageUrlsPath = 'imageUrls.json';
+          let imageUrlsData = JSON.parse(fs.readFileSync(imageUrlsPath, 'utf8'));
 
+          const compareIgnoreCase = (str1, str2) => str1.localeCompare(str2, undefined, { sensitivity: 'base' });
 
+          const serverChannelId1 = '1203803520998969344';
+          const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
 
+          const replyContent = `<@${user_id}> your card description has been accepted by a moderator. Congrats, you are now part of this project! Thank you!`;
+          await serverChannel1.send(replyContent);
+      });
+  }
 });
 
-function compareIgnoreCase(str1, str2) {
-  return str1 && str2 && str1.toLowerCase() === str2.toLowerCase();
-}
-
-function startsWithIgnoreCase(str, prefix) {
-  return str && str.toLowerCase().startsWith(prefix.toLowerCase());
-}
-
-function isSeriesStartsWith(series, inputSeries) {
-  const normalizedSeries = series.toLowerCase();
-  const normalizedInputSeries = inputSeries.toLowerCase();
-  return normalizedSeries.startsWith(normalizedInputSeries);
-}
-
-// Function to retrieve data from the database based on message ID
-const getDataFromDatabase = (messageId) => {
-  return new Promise((resolve, reject) => {
-      const getDataQuery = 'SELECT usertag, card_name FROM user_data WHERE message_id = ?';
-
-      connection.query(getDataQuery, [messageId], (err, results) => {
-          if (err) {
-              console.error('Error retrieving data from the database:', err.message);
-              reject(err);
-              return;
-          }
-
-          // Check if any data was found
-          if (results.length === 0) {
-              console.error('No data found for message ID:', messageId);
-              resolve(null);
-              return;
-          }
-
-          // Extract relevant data
-          const data = {
-              usertag: results[0].usertag,
-              cardName: results[0].card_name,
-          };
-
-          resolve(data);
-      });
-  });
-};
-
+// Function to check if a user is a moderator
 function isModerator(userId) {
   const moderatorsFilePath = './moderators.json';
 
-  // Sprawdź, czy plik moderators.json istnieje
+  // Check if the moderators.json file exists
   if (!fs.existsSync(moderatorsFilePath)) {
     console.error('Moderators file does not exist.');
     return false;
   }
 
-  // Wczytaj dane o moderatorach z pliku
+  // Read moderators data from file
   const moderatorsData = JSON.parse(fs.readFileSync(moderatorsFilePath, 'utf8'));
 
-  // Sprawdź, czy użytkownik jest moderatorem
+  // Check if the user is a moderator
   return moderatorsData.some((moderator) => moderator.id === userId);
 }
 
@@ -1795,166 +1566,931 @@ function generateSpecialAbility(element, baseElement) {
   };
 
   const abilities = {
-    [`${emojiMap.fire}_${emojiMap.earth}`]: { name: 'Cinderclad Rupture', description: `Summons a localized volcanic fissure beneath a targeted enemy, dealing a moderate 70% hybrid damage of ${emojiMap.earth} or ${emojiMap.fire}. Has a 90% chance of creating a "Smouldering" debuff, which persists for 2 turns, causing 10% DOT ${emojiMap.fire} damage to the enemy for 1 turn.` },
-    [`${emojiMap.earth}_${emojiMap.fire}`]: { name: 'Cinderclad Rupture', description: `Summons a localized volcanic fissure beneath a targeted enemy, dealing a moderate 70% hybrid damage of ${emojiMap.earth} or ${emojiMap.fire}. Has a 90% chance of creating a "Smouldering" debuff, which persists for 2 turns, causing 10% DOT ${emojiMap.fire} damage to the enemy for 1 turn.` },
+    [`${emojiMap.fire}_${emojiMap.earth}`]: { 
+      name: 'Cinderclad Rupture', 
+      description: `Summons a localized 
+      volcanic fissure beneath a targeted 
+      enemy, dealing a moderate 70% hybrid 
+      damage of ${emojiMap.earth} or 
+      ${emojiMap.fire}. Has a 90% chance 
+      of creating a "Smouldering" debuff, 
+      which persists for 2 turns, 
+      causing 10% DOT ${emojiMap.fire} 
+      damage to the enemy for 1 turn.`  
+  },
+  [`${emojiMap.earth}_${emojiMap.fire}`]: { 
+      name: 'Cinderclad Rupture', 
+      description: `Summons a localized 
+      volcanic fissure beneath a targeted 
+      enemy, dealing a moderate 70% hybrid 
+      damage of ${emojiMap.earth} or 
+      ${emojiMap.fire}. Has a 90% chance 
+      of creating a "Smouldering" debuff, 
+      which persists for 2 turns, 
+      causing 10% DOT ${emojiMap.fire} 
+      damage to the enemy for 1 turn.` 
+  },
+  
+  [`${emojiMap.fire}_${emojiMap.water}`]: { 
+      name: 'Mistral Confluence', 
+      description: `Weaves a plume 
+      of steam directed at a single enemy, 
+      dealing 80% hybrid damage upon impact. 
+      Has a 90% chance of causing a 
+      "Blurred Haze" status effect, 
+      which decreases the target's 
+      damage by 10% for their next turn.` 
+    },
+  [`${emojiMap.water}_${emojiMap.fire}`]: { 
+      name: 'Mistral Confluence', 
+      description: `Weaves a plume 
+      of steam directed at a single enemy, 
+      dealing 80% hybrid damage upon impact. 
+      Has a 90% chance of causing a 
+      "Blurred Haze" status effect, 
+      which decreases the target's 
+      damage by 10% for their next turn.` 
+  },
+  
+  [`${emojiMap.fire}_${emojiMap.metal}`]: { 
+      name: 'Ferric Blaze', 
+      description: `Hurls a molten metal 
+      shard at a single target, dealing 
+      precise 65% hybrid damage. Has an 
+      85% chance to embed metal poison 
+      in the target, reducing their 
+      defense by 5% and causing a 
+      "Metallic Sear" for 2 turns, 
+      inflicting 5% DOT ${emojiMap.metal} 
+      damage each turn.` 
+  },
+  [`${emojiMap.metal}_${emojiMap.fire}`]: { 
+      name: 'Ferric Blaze', 
+      description: `Hurls a molten metal 
+      shard at a single target, dealing 
+      precise 65% hybrid damage. Has an 
+      85% chance to embed metal poison 
+      in the target, reducing their 
+      defense by 5% and causing a 
+      "Metallic Sear" for 2 turns, 
+      inflicting 5% DOT ${emojiMap.metal} 
+      damage each turn.` 
+  },
+  
+  [`${emojiMap.fire}_${emojiMap.electricity}`]: { 
+      name: 'Electric Inferno', 
+      description: `Unleashes a surge 
+      of electrical fire, engulfing 
+      the target in a blaze of ${emojiMap.fire} 
+      and ${emojiMap.electricity}. Deals 75% 
+      hybrid damage and has a 80% chance to 
+      paralyze the enemy for 1 turn.` 
+    },
+  [`${emojiMap.electricity}_${emojiMap.fire}`]: { 
+      name: 'Electric Inferno', 
+      description: `Unleashes a surge 
+      of electrical fire, engulfing 
+      the target in a blaze of ${emojiMap.fire} 
+      and ${emojiMap.electricity}. Deals 75% 
+      hybrid damage and has a 80% chance to 
+      paralyze the enemy for 1 turn.` 
+  },
+  
+  [`${emojiMap.fire}_${emojiMap.wind}`]: { 
+      name: 'Blazing Gale', 
+      description: `Ignites the air 
+      with fierce winds and flames, 
+      striking the enemy with a 
+      combination of ${emojiMap.fire} 
+      and ${emojiMap.wind} power. 
+      Inflicts 85% hybrid damage and 
+      has a 70% chance to disorient the 
+      enemy, causing them to miss their 
+      next turn.` 
+  },
+  [`${emojiMap.wind}_${emojiMap.fire}`]: { 
+      name: 'Blazing Gale', 
+      description: `Ignites the air 
+      with fierce winds and flames, 
+      striking the enemy with a 
+      combination of ${emojiMap.fire} 
+      and ${emojiMap.wind} power. 
+      Inflicts 85% hybrid damage and 
+      has a 70% chance to disorient the 
+      enemy, causing them to miss their 
+      next turn.` 
+  },
+  //5
+  [`${emojiMap.fire}_${emojiMap.overpowered}`]: { 
+    name: 'Overcharged Inferno', 
+    description: `Channels overwhelming 
+    energy into a blazing inferno, 
+    creating an ${emojiMap.overpowered} explosion 
+    of ${emojiMap.fire} power. Deals 100% 
+    hybrid damage to all enemies and has 
+    a 50% chance to inflict Burnout, causing 
+    15% DOT ${emojiMap.fire} damage for 2 turns.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.fire}`]: { 
+    name: 'Overcharged Inferno', 
+    description: `Channels overwhelming 
+    energy into a blazing inferno, 
+    creating an ${emojiMap.overpowered} explosion 
+    of ${emojiMap.fire} power. Deals 100% 
+    hybrid damage to all enemies and has 
+    a 50% chance to inflict Burnout, causing 
+    15% DOT ${emojiMap.fire} damage for 2 turns.` 
+},
 
-    [`${emojiMap.fire}_${emojiMap.water}`]: { name: 'Mistral Confluence', description: `Weaves a plume of steam directed at a single enemy, dealing 80% hybrid damage upon impact. Has a 90% chance of causing a "Blurred Haze" status effect, which decreases the target's damage by 10% for their next turn.` },
-    [`${emojiMap.water}_${emojiMap.fire}`]: { name: 'Mistral Confluence', description: `Weaves a plume of steam directed at a single enemy, dealing 80% hybrid damage upon impact. Has a 90% chance of causing a "Blurred Haze" status effect, which decreases the target's damage by 10% for their next turn.` },
-    
-    [`${emojiMap.fire}_${emojiMap.metal}`]: { name: 'Ferric Blaze', description: `Hurls a molten metal shard at a single target, dealing precise 65% hybrid damage. Has an 85% chance to embed metal poison in the target, reducing their defense by 5% and causing a "Metallic Sear" for 2 turns, inflicting 5% DOT ${emojiMap.metal} damage each turn.` },
-    [`${emojiMap.metal}_${emojiMap.fire}`]: { name: 'Ferric Blaze', description: `Hurls a molten metal shard at a single target, dealing precise 65% hybrid damage. Has an 85% chance to embed metal poison in the target, reducing their defense by 5% and causing a "Metallic Sear" for 2 turns, inflicting 5% DOT ${emojiMap.metal} damage each turn.` },
+[`${emojiMap.earth}_${emojiMap.water}`]: { 
+    name: 'Mudslide', 
+    description: `Generates a torrent 
+    of mud at a target location within 
+    a 2-block radius, ensnaring enemies with 
+    90% hybrid damage. The thick sludge slows 
+    down the enemy movement by 20% for the 
+    next turn.` 
+  },
+[`${emojiMap.water}_${emojiMap.earth}`]: { 
+    name: 'Mudslide', 
+    description: `Generates a torrent 
+    of mud at a target location within 
+    a 2-block radius, ensnaring enemies with 
+    90% hybrid damage. The thick sludge slows 
+    down the enemy movement by 20% for the 
+    next turn.` 
+},
 
-    [`${emojiMap.fire}_${emojiMap.electricity}`]: { name: 'Electric Inferno', description: `Unleashes a surge of electrical fire, engulfing the target in a blaze of ${emojiMap.fire} and ${emojiMap.electricity}. Deals 75% hybrid damage and has a 80% chance to paralyze the enemy for 1 turn.` },
-    [`${emojiMap.electricity}_${emojiMap.fire}`]: { name: 'Electric Inferno', description: `Unleashes a surge of electrical fire, engulfing the target in a blaze of ${emojiMap.fire} and ${emojiMap.electricity}. Deals 75% hybrid damage and has a 80% chance to paralyze the enemy for 1 turn.` },
+[`${emojiMap.earth}_${emojiMap.metal}`]: { 
+    name: 'Sharp Pebble', 
+    description: `Targets 2 block enemies, 
+    causing a 50% hybrid damage. Has a 100% 
+    chance to stun enemies for 2 turns.` 
+  },
+[`${emojiMap.metal}_${emojiMap.earth}`]: { 
+    name: 'Sharp Pebble', 
+    description: `Targets 2 block enemies, 
+    causing a 50% hybrid damage. Has a 100% 
+    chance to stun enemies for 2 turns.` 
+},
 
-    [`${emojiMap.fire}_${emojiMap.wind}`]: { name: 'Blazing Gale', description: `Ignites the air with fierce winds and flames, striking the enemy with a combination of ${emojiMap.fire} and ${emojiMap.wind} power. Inflicts 85% hybrid damage and has a 70% chance to disorient the enemy, causing them to miss their next turn.` },
-    [`${emojiMap.wind}_${emojiMap.fire}`]: { name: 'Blazing Gale', description: `Ignites the air with fierce winds and flames, striking the enemy with a combination of ${emojiMap.fire} and ${emojiMap.wind} power. Inflicts 85% hybrid damage and has a 70% chance to disorient the enemy, causing them to miss their next turn.` },
+[`${emojiMap.earth}_${emojiMap.electricity}`]: { 
+    name: 'Electrified Terrain', 
+    description: `Electrifies the earth, 
+    shocking enemies with a jolt of 
+    ${emojiMap.electricity}. Deals 80% 
+    hybrid damage and has a 90% chance 
+    to inflict Paralysis, preventing the 
+    enemy from taking action for 1 turn.` 
+  },
+[`${emojiMap.electricity}_${emojiMap.earth}`]: { 
+    name: 'Electrified Terrain', 
+    description: `Electrifies the earth, 
+    shocking enemies with a jolt of 
+    ${emojiMap.electricity}. Deals 80% 
+    hybrid damage and has a 90% chance 
+    to inflict Paralysis, preventing the 
+    enemy from taking action for 1 turn.` 
+},
 
-    [`${emojiMap.fire}_${emojiMap.overpowered}`]: { name: 'Overcharged Inferno', description: `Channels overwhelming energy into a blazing inferno, creating an ${emojiMap.overpowered} explosion of ${emojiMap.fire} power. Deals 100% hybrid damage to all enemies and has a 50% chance to inflict Burnout, causing 15% DOT ${emojiMap.fire} damage for 2 turns.` },
-    [`${emojiMap.overpowered}_${emojiMap.fire}`]: { name: 'Overcharged Inferno', description: `Channels overwhelming energy into a blazing inferno, creating an ${emojiMap.overpowered} explosion of ${emojiMap.fire} power. Deals 100% hybrid damage to all enemies and has a 50% chance to inflict Burnout, causing 15% DOT ${emojiMap.fire} damage for 2 turns.` },
+[`${emojiMap.earth}_${emojiMap.wind}`]: { 
+    name: 'Turbulent Tremor', 
+    description: `Creates seismic 
+    waves infused with ${emojiMap.earth}
+    and ${emojiMap.wind} power, 
+    striking the enemy with 75% hybrid 
+    damage. Has a 75% chance to disrupt 
+    the enemy's balance, causing them 
+    to lose 10% accuracy for 2 turns.` 
+  },
+[`${emojiMap.wind}_${emojiMap.earth}`]: { 
+    name: 'Turbulent Tremor', 
+    description: `Creates seismic 
+    waves infused with ${emojiMap.earth}
+    and ${emojiMap.wind} power, 
+    striking the enemy with 75% hybrid 
+    damage. Has a 75% chance to disrupt 
+    the enemy's balance, causing them 
+    to lose 10% accuracy for 2 turns.` 
+},
+//10
+[`${emojiMap.earth}_${emojiMap.overpowered}`]: { 
+  name: 'Overwhelming Quake', 
+  description: `Unleashes an 
+  ${emojiMap.overpowered} earthquake 
+  of tremendous power, dealing 110% 
+  hybrid damage to all enemies. Has a 
+  50% chance to inflict Tremors, 
+  reducing the enemy's defense by 
+  20% for 2 turns.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.earth}`]: { 
+  name: 'Overwhelming Quake', 
+  description: `Unleashes an 
+  ${emojiMap.overpowered} earthquake 
+  of tremendous power, dealing 110% 
+  hybrid damage to all enemies. Has a 
+  50% chance to inflict Tremors, 
+  reducing the enemy's defense by 
+  20% for 2 turns.` 
+},
 
-    [`${emojiMap.earth}_${emojiMap.water}`]: { name: 'Mudslide', description: `Generates a torrent of mud at a target location within a 2-block radius, ensnaring enemies with 90% hybrid damage. The thick sludge slows down the enemy movement by 20% for the next turn.` },
-    [`${emojiMap.water}_${emojiMap.earth}`]: { name: 'Mudslide', description: `Generates a torrent of mud at a target location within a 2-block radius, ensnaring enemies with 90% hybrid damage. The thick sludge slows down the enemy movement by 20% for the next turn.` },
+[`${emojiMap.water}_${emojiMap.metal}`]: { 
+  name: 'Razor Torrent', 
+  description: `Sends forth a jet 
+  of water at high velocity towards 
+  a single enemy, inflicting 85% 
+  hybrid damage. Decreases the target's 
+  defense by 8% for 3 turns.` 
+},
+[`${emojiMap.metal}_${emojiMap.water}`]: { 
+  name: 'Razor Torrent', 
+  description: `Sends forth a jet 
+  of water at high velocity towards 
+  a single enemy, inflicting 85% 
+  hybrid damage. Decreases the target's 
+  defense by 8% for 3 turns.` 
+},
 
-    [`${emojiMap.earth}_${emojiMap.metal}`]: { name: 'Sharp Pebble', description: `Targets 2 block enemies, causing a 50% hybrid damage. Has a 100% chance to stun enemies for 2 turns.` },
-    [`${emojiMap.metal}_${emojiMap.earth}`]: { name: 'Sharp Pebble', description: `Targets 2 block enemies, causing a 50% hybrid damage. Has a 100% chance to stun enemies for 2 turns.` },
+[`${emojiMap.water}_${emojiMap.electricity}`]: { 
+  name: 'Shockwave Surge', 
+  description: `Creates a surge of 
+  electrified water, shocking enemies 
+  with ${emojiMap.electricity} and 
+  ${emojiMap.water} power. Deals 90% 
+  hybrid damage and has a 80% chance 
+  to cause Short Circuit, disabling 
+  the enemy's special abilities 
+  for 2 turns.` 
+},
+[`${emojiMap.electricity}_${emojiMap.water}`]: { 
+  name: 'Shockwave Surge', 
+  description: `Creates a surge of 
+  electrified water, shocking enemies 
+  with ${emojiMap.electricity} and 
+  ${emojiMap.water} power. Deals 90% 
+  hybrid damage and has a 80% chance 
+  to cause Short Circuit, disabling 
+  the enemy's special abilities 
+  for 2 turns.` 
+},
 
-    [`${emojiMap.earth}_${emojiMap.electricity}`]: { name: 'Electrified Terrain', description: `Electrifies the earth, shocking enemies with a jolt of ${emojiMap.electricity}. Deals 80% hybrid damage and has a 90% chance to inflict Paralysis, preventing the enemy from taking action for 1 turn.` },
-    [`${emojiMap.electricity}_${emojiMap.earth}`]: { name: 'Electrified Terrain', description: `Electrifies the earth, shocking enemies with a jolt of ${emojiMap.electricity}. Deals 80% hybrid damage and has a 90% chance to inflict Paralysis, preventing the enemy from taking action for 1 turn.` },
+[`${emojiMap.water}_${emojiMap.wind}`]: { 
+  name: 'Tempest Tide', 
+  description: `Summons a powerful 
+  tidal wave infused with ${emojiMap.wind} 
+  and ${emojiMap.water}, crashing upon 
+  enemies with 95% hybrid damage. 
+  Has a 70% chance to inflict Drenched 
+  status, reducing the enemy's speed 
+  by 15% for 2 turns.` 
+},
+[`${emojiMap.wind}_${emojiMap.water}`]: { 
+  name: 'Tempest Tide', 
+  description: `Summons a powerful 
+  tidal wave infused with ${emojiMap.wind} 
+  and ${emojiMap.water}, crashing upon 
+  enemies with 95% hybrid damage. 
+  Has a 70% chance to inflict Drenched 
+  status, reducing the enemy's speed 
+  by 15% for 2 turns.` 
+},
 
-    [`${emojiMap.earth}_${emojiMap.wind}`]: { name: 'Turbulent Tremor', description: `Creates seismic waves infused with ${emojiMap.earth} and ${emojiMap.wind} power, striking the enemy with 75% hybrid damage. Has a 75% chance to disrupt the enemy's balance, causing them to lose 10% accuracy for 2 turns.` },
-    [`${emojiMap.wind}_${emojiMap.earth}`]: { name: 'Turbulent Tremor', description: `Creates seismic waves infused with ${emojiMap.earth} and ${emojiMap.wind} power, striking the enemy with 75% hybrid damage. Has a 75% chance to disrupt the enemy's balance, causing them to lose 10% accuracy for 2 turns.` },
+[`${emojiMap.water}_${emojiMap.overpowered}`]: { 
+  name: 'Overwhelming Deluge', 
+  description: `Unleashes an ${emojiMap.overpowered} 
+  deluge of water, flooding the battlefield 
+  and dealing 120% hybrid damage to all 
+  enemies. Has a 50% chance to cause Soaked 
+  status, making enemies vulnerable to 
+  electric attacks for 2 turns.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.water}`]: { 
+  name: 'Overwhelming Deluge', 
+  description: `Unleashes an ${emojiMap.overpowered} 
+  deluge of water, flooding the battlefield 
+  and dealing 120% hybrid damage to all 
+  enemies. Has a 50% chance to cause Soaked 
+  status, making enemies vulnerable to 
+  electric attacks for 2 turns.` 
+},
+//15
+[`${emojiMap.metal}_${emojiMap.electricity}`]: { 
+  name: 'Conductive Shock', 
+  description: `Channels electricity 
+  through metallic objects, shocking 
+  enemies with ${emojiMap.electricity} 
+  and ${emojiMap.metal} power. Deals 
+  95% hybrid damage and has a 80% 
+  chance to inflict Conductive Discharge, 
+  causing 12% DOT ${emojiMap.electricity} 
+  damage for 2 turns.` 
+},
+[`${emojiMap.electricity}_${emojiMap.metal}`]: { 
+  name: 'Conductive Shock', 
+  description: `Channels electricity 
+  through metallic objects, shocking 
+  enemies with ${emojiMap.electricity} 
+  and ${emojiMap.metal} power. Deals 
+  95% hybrid damage and has a 80% 
+  chance to inflict Conductive Discharge, 
+  causing 12% DOT ${emojiMap.electricity} 
+  damage for 2 turns.` 
+},
 
-    [`${emojiMap.earth}_${emojiMap.overpowered}`]: { name: 'Overwhelming Quake', description: `Unleashes an ${emojiMap.overpowered} earthquake of tremendous power, dealing 110% hybrid damage to all enemies. Has a 50% chance to inflict Tremors, reducing the enemy's defense by 20% for 2 turns.` },
-    [`${emojiMap.overpowered}_${emojiMap.earth}`]: { name: 'Overwhelming Quake', description: `Unleashes an ${emojiMap.overpowered} earthquake of tremendous power, dealing 110% hybrid damage to all enemies. Has a 50% chance to inflict Tremors, reducing the enemy's defense by 20% for 2 turns.` },
+[`${emojiMap.metal}_${emojiMap.wind}`]: { 
+  name: 'Cyclonic Shrapnel', 
+  description: `Launches razor-sharp 
+  metal fragments infused with 
+  ${emojiMap.wind}, dealing 90% 
+  hybrid damage to all enemies. 
+  Has a 70% chance to inflict 
+  Bleeding Wounds, causing 10% 
+  DOT ${emojiMap.metal} damage 
+  for 3 turns.` 
+},
+[`${emojiMap.wind}_${emojiMap.metal}`]: { 
+  name: 'Cyclonic Shrapnel', 
+  description: `Launches razor-sharp 
+  metal fragments infused with 
+  ${emojiMap.wind}, dealing 90% 
+  hybrid damage to all enemies. 
+  Has a 70% chance to inflict 
+  Bleeding Wounds, causing 10% 
+  DOT ${emojiMap.metal} damage 
+  for 3 turns.` 
+},
 
-    [`${emojiMap.water}_${emojiMap.metal}`]: { name: 'Razor Torrent', description: `Sends forth a jet of water at high velocity towards a single enemy, inflicting 85% hybrid damage. Decreases the target's defense by 8% for 3 turns.` },
-    [`${emojiMap.metal}_${emojiMap.water}`]: { name: 'Razor Torrent', description: `Sends forth a jet of water at high velocity towards a single enemy, inflicting 85% hybrid damage. Decreases the target's defense by 8% for 3 turns.` },
+[`${emojiMap.metal}_${emojiMap.overpowered}`]: { 
+  name: 'Overcharged Shrapnel', 
+  description: `Unleashes an 
+  ${emojiMap.overpowered} explosion 
+  of metal shards, shredding enemies 
+  with 130% hybrid damage. Has a 50% 
+  chance to inflict Shrapnel Scatter, 
+  reducing the enemy's accuracy by 25% 
+  for 2 turns.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.metal}`]: { 
+  name: 'Overcharged Shrapnel', 
+  description: `Unleashes an 
+  ${emojiMap.overpowered} explosion 
+  of metal shards, shredding enemies 
+  with 130% hybrid damage. Has a 50% 
+  chance to inflict Shrapnel Scatter, 
+  reducing the enemy's accuracy by 25% 
+  for 2 turns.` 
+},
 
-    [`${emojiMap.water}_${emojiMap.electricity}`]: { name: 'Shockwave Surge', description: `Creates a surge of electrified water, shocking enemies with ${emojiMap.electricity} and ${emojiMap.water} power. Deals 90% hybrid damage and has a 80% chance to cause Short Circuit, disabling the enemy's special abilities for 2 turns.` },
-    [`${emojiMap.electricity}_${emojiMap.water}`]: { name: 'Shockwave Surge', description: `Creates a surge of electrified water, shocking enemies with ${emojiMap.electricity} and ${emojiMap.water} power. Deals 90% hybrid damage and has a 80% chance to cause Short Circuit, disabling the enemy's special abilities for 2 turns.` },
+[`${emojiMap.electricity}_${emojiMap.wind}`]: { 
+  name: 'Static Cyclone', 
+  description: `Creates a whirlwind 
+  charged with electricity and wind, 
+  striking enemies with 100% hybrid 
+  damage. Has a 80% chance to cause 
+  Disruption, preventing enemies from 
+  using abilities for 1 turn.` 
+},
+[`${emojiMap.wind}_${emojiMap.electricity}`]: { 
+  name: 'Static Cyclone', 
+  description: `Creates a whirlwind 
+  charged with electricity and wind, 
+  striking enemies with 100% hybrid 
+  damage. Has a 80% chance to cause 
+  Disruption, preventing enemies from 
+  using abilities for 1 turn.` 
+},
 
-    [`${emojiMap.water}_${emojiMap.wind}`]: { name: 'Tempest Tide', description: `Summons a powerful tidal wave infused with ${emojiMap.wind} and ${emojiMap.water}, crashing upon enemies with 95% hybrid damage. Has a 70% chance to inflict Drenched status, reducing the enemy's speed by 15% for 2 turns.` },
-    [`${emojiMap.wind}_${emojiMap.water}`]: { name: 'Tempest Tide', description: `Summons a powerful tidal wave infused with ${emojiMap.wind} and ${emojiMap.water}, crashing upon enemies with 95% hybrid damage. Has a 70% chance to inflict Drenched status, reducing the enemy's speed by 15% for 2 turns.` },
+[`${emojiMap.electricity}_${emojiMap.overpowered}`]: { 
+  name: 'Overcharged Storm', 
+  description: `Summons an 
+  ${emojiMap.overpowered} storm 
+  of immense power, striking all 
+  enemies with lightning bolts 
+  and gusts of wind, dealing 140% 
+  hybrid damage. Has a 50% chance 
+  to inflict Electric Shock, 
+  causing 15% DOT ${emojiMap.electricity} 
+  damage for 2 turns.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.electricity}`]: { 
+  name: 'Overcharged Storm', 
+  description: `Summons an 
+  ${emojiMap.overpowered} storm 
+  of immense power, striking all 
+  enemies with lightning bolts 
+  and gusts of wind, dealing 140% 
+  hybrid damage. Has a 50% chance 
+  to inflict Electric Shock, 
+  causing 15% DOT ${emojiMap.electricity} 
+  damage for 2 turns.` 
+},
+//20
+[`${emojiMap.wind}_${emojiMap.overpowered}`]: { 
+  name: 'Overwhelming Gust', 
+  description: `Summons an 
+  ${emojiMap.overpowered} gust 
+  of wind, sweeping enemies off 
+  their feet and dealing 150% 
+  hybrid damage. Has a 50% chance 
+  to inflict Disarray, causing 
+  confusion and making enemies 
+  randomly target allies 
+  for 2 turns.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.wind}`]: { 
+  name: 'Overwhelming Gust', 
+  description: `Summons an 
+  ${emojiMap.overpowered} gust 
+  of wind, sweeping enemies off 
+  their feet and dealing 150% 
+  hybrid damage. Has a 50% chance 
+  to inflict Disarray, causing 
+  confusion and making enemies 
+  randomly target allies 
+  for 2 turns.` 
+},
 
-    [`${emojiMap.water}_${emojiMap.overpowered}`]: { name: 'Overwhelming Deluge', description: `Unleashes an ${emojiMap.overpowered} deluge of water, flooding the battlefield and dealing 120% hybrid damage to all enemies. Has a 50% chance to cause Soaked status, making enemies vulnerable to electric attacks for 2 turns.` },
-    [`${emojiMap.overpowered}_${emojiMap.water}`]: { name: 'Overwhelming Deluge', description: `Unleashes an ${emojiMap.overpowered} deluge of water, flooding the battlefield and dealing 120% hybrid damage to all enemies. Has a 50% chance to cause Soaked status, making enemies vulnerable to electric attacks for 2 turns.` },
+[`${emojiMap.dark}_${emojiMap.light}`]: { 
+  name: 'Eclipse', 
+  description: `Plunges the 
+  battlefield into darkness, 
+  followed by a blinding flash 
+  of light, dealing 120% hybrid 
+  damage. Has a 50% chance to 
+  inflict Blindness, reducing 
+  the enemy's accuracy by 20% 
+  for 2 turns.` 
+},
+[`${emojiMap.light}_${emojiMap.dark}`]: { 
+  name: 'Eclipse', 
+  description: `Plunges the 
+  battlefield into darkness, 
+  followed by a blinding flash 
+  of light, dealing 120% hybrid 
+  damage. Has a 50% chance to 
+  inflict Blindness, reducing 
+  the enemy's accuracy by 20% 
+  for 2 turns.` 
+},
 
-    [`${emojiMap.metal}_${emojiMap.electricity}`]: { name: 'Conductive Shock', description: `Channels electricity through metallic objects, shocking enemies with ${emojiMap.electricity} and ${emojiMap.metal} power. Deals 95% hybrid damage and has a 80% chance to inflict Conductive Discharge, causing 12% DOT ${emojiMap.electricity} damage for 2 turns.` },
-    [`${emojiMap.electricity}_${emojiMap.metal}`]: { name: 'Conductive Shock', description: `Channels electricity through metallic objects, shocking enemies with ${emojiMap.electricity} and ${emojiMap.metal} power. Deals 95% hybrid damage and has a 80% chance to inflict Conductive Discharge, causing 12% DOT ${emojiMap.electricity} damage for 2 turns.` },
+[`${emojiMap.dark}_${emojiMap.overpowered}`]: { 
+  name: 'Overwhelming Void', 
+  description: `Unleashes an 
+  ${emojiMap.overpowered} void of 
+  darkness, engulfing enemies and 
+  dealing 130% hybrid damage. 
+  Has a 50% chance to inflict 
+  Void Corruption, preventing 
+  enemies from receiving healing 
+  for 2 turns.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.dark}`]: { 
+  name: 'Overwhelming Void', 
+  description: `Unleashes an 
+  ${emojiMap.overpowered} void of 
+  darkness, engulfing enemies and 
+  dealing 130% hybrid damage. 
+  Has a 50% chance to inflict 
+  Void Corruption, preventing 
+  enemies from receiving healing 
+  for 2 turns.` 
+},
 
-    [`${emojiMap.metal}_${emojiMap.wind}`]: { name: 'Cyclonic Shrapnel', description: `Launches razor-sharp metal fragments infused with ${emojiMap.wind}, dealing 90% hybrid damage to all enemies. Has a 70% chance to inflict Bleeding Wounds, causing 10% DOT ${emojiMap.metal} damage for 3 turns.` },
-    [`${emojiMap.wind}_${emojiMap.metal}`]: { name: 'Cyclonic Shrapnel', description: `Launches razor-sharp metal fragments infused with ${emojiMap.wind}, dealing 90% hybrid damage to all enemies. Has a 70% chance to inflict Bleeding Wounds, causing 10% DOT ${emojiMap.metal} damage for 3 turns.` },
+[`${emojiMap.light}_${emojiMap.overpowered}`]: { 
+  name: 'Overwhelming Radiance', 
+  description: `Radiates an 
+  ${emojiMap.overpowered} aura of 
+  blinding light, purging enemies 
+  with divine energy and dealing 
+  140% hybrid damage. Has a 50% 
+  chance to inflict Radiant Cleansing, 
+  removing all buffs from enemies.` 
+},
+[`${emojiMap.overpowered}_${emojiMap.light}`]: { 
+  name: 'Overwhelming Radiance', 
+  description: `Radiates an 
+  ${emojiMap.overpowered} aura of 
+  blinding light, purging enemies 
+  with divine energy and dealing 
+  140% hybrid damage. Has a 50% 
+  chance to inflict Radiant Cleansing, 
+  removing all buffs from enemies.` 
+},
 
-    [`${emojiMap.metal}_${emojiMap.overpowered}`]: { name: 'Overcharged Shrapnel', description: `Unleashes an ${emojiMap.overpowered} explosion of metal shards, shredding enemies with 130% hybrid damage. Has a 50% chance to inflict Shrapnel Scatter, reducing the enemy's accuracy by 25% for 2 turns.` },
-    [`${emojiMap.overpowered}_${emojiMap.metal}`]: { name: 'Overcharged Shrapnel', description: `Unleashes an ${emojiMap.overpowered} explosion of metal shards, shredding enemies with 130% hybrid damage. Has a 50% chance to inflict Shrapnel Scatter, reducing the enemy's accuracy by 25% for 2 turns.` },
+[`${emojiMap.fire}_${emojiMap.fighting}`]: { 
+  name: 'Blaze Combo', 
+  description: `Unleashes a flurry 
+  of fiery punches and kicks, dealing 
+  80% hybrid damage. Has a 75% chance 
+  to cause "Flame Fury", increasing 
+  damage dealt by 15% for the next turn.` 
+},
+[`${emojiMap.fighting}_${emojiMap.fire}`]: { 
+  name: 'Blaze Combo', 
+  description: `Unleashes a flurry 
+  of fiery punches and kicks, dealing 
+  80% hybrid damage. Has a 75% chance 
+  to cause "Flame Fury", increasing 
+  damage dealt by 15% for the next turn.` 
+},
+//25
+[`${emojiMap.water}_${emojiMap.fighting}`]: { 
+  name: 'Aqua Barrage', 
+  description: `Unleashes a rapid 
+  barrage of water-infused strikes, 
+  dealing 85% hybrid damage. Has a 
+  70% chance to cause "Hydro Surge", 
+  decreasing enemy speed by 15% for 
+  2 turns.` 
+},
+[`${emojiMap.fighting}_${emojiMap.water}`]: { 
+  name: 'Aqua Barrage', 
+  description: `Unleashes a rapid 
+  barrage of water-infused strikes, 
+  dealing 85% hybrid damage. Has a 
+  70% chance to cause "Hydro Surge", 
+  decreasing enemy speed by 15% for 
+  2 turns.` 
+},
 
-    [`${emojiMap.electricity}_${emojiMap.wind}`]: { name: 'Static Cyclone', description: `Creates a whirlwind charged with electricity and wind, striking enemies with 100% hybrid damage. Has a 80% chance to cause Disruption, preventing enemies from using abilities for 1 turn.` },
-    [`${emojiMap.wind}_${emojiMap.electricity}`]: { name: 'Static Cyclone', description: `Creates a whirlwind charged with electricity and wind, striking enemies with 100% hybrid damage. Has a 80% chance to cause Disruption, preventing enemies from using abilities for 1 turn.` },
+[`${emojiMap.wind}_${emojiMap.fighting}`]: { 
+  name: 'Tempest Strike', 
+  description: `Executes a swift and 
+  powerful strike imbued with the force 
+  of wind, dealing 85% hybrid damage. 
+  Has a 70% chance to cause "Aero Impact", 
+  knocking the enemy back one tile.` 
+},
+[`${emojiMap.fighting}_${emojiMap.wind}`]: { 
+  name: 'Tempest Strike', 
+  description: `Executes a swift and 
+  powerful strike imbued with the force 
+  of wind, dealing 85% hybrid damage. 
+  Has a 70% chance to cause "Aero Impact", 
+  knocking the enemy back one tile.` 
+},
 
-    [`${emojiMap.electricity}_${emojiMap.overpowered}`]: { name: 'Overcharged Storm', description: `Summons an ${emojiMap.overpowered} storm of immense power, striking all enemies with lightning bolts and gusts of wind, dealing 140% hybrid damage. Has a 50% chance to inflict Electric Shock, causing 15% DOT ${emojiMap.electricity} damage for 2 turns.` },
-    [`${emojiMap.overpowered}_${emojiMap.electricity}`]: { name: 'Overcharged Storm', description: `Summons an ${emojiMap.overpowered} storm of immense power, striking all enemies with lightning bolts and gusts of wind, dealing 140% hybrid damage. Has a 50% chance to inflict Electric Shock, causing 15% DOT ${emojiMap.electricity} damage for 2 turns.` },
+[`${emojiMap.earth}_${emojiMap.fighting}`]: { 
+  name: 'Tectonic Uppercut', 
+  description: `Delivers a powerful 
+  uppercut infused with earth energy, 
+  dealing 90% hybrid damage. Has a 70% 
+  chance to cause "Quake Impact", 
+  stunning the enemy for 1 turn.` 
+},
+[`${emojiMap.fighting}_${emojiMap.earth}`]: { 
+  name: 'Tectonic Uppercut', 
+  description: `Delivers a powerful 
+  uppercut infused with earth energy, 
+  dealing 90% hybrid damage. Has a 70% 
+  chance to cause "Quake Impact", 
+  stunning the enemy for 1 turn.` 
+},
 
-    [`${emojiMap.wind}_${emojiMap.overpowered}`]: { name: 'Overwhelming Gust', description: `Summons an ${emojiMap.overpowered} gust of wind, sweeping enemies off their feet and dealing 150% hybrid damage. Has a 50% chance to inflict Disarray, causing confusion and making enemies randomly target allies for 2 turns.` },
-    [`${emojiMap.overpowered}_${emojiMap.wind}`]: { name: 'Overwhelming Gust', description: `Summons an ${emojiMap.overpowered} gust of wind, sweeping enemies off their feet and dealing 150% hybrid damage. Has a 50% chance to inflict Disarray, causing confusion and making enemies randomly target allies for 2 turns.` },
+[`${emojiMap.electricity}_${emojiMap.fighting}`]: { 
+  name: 'Thunderous Punch', 
+  description: `Delivers a 
+  lightning-charged punch, shocking 
+  the enemy with 85% hybrid damage. 
+  Has a 70% chance to cause 
+  "Electro Impact", paralyzing 
+  the enemy for 1 turn.`  
+},
+[`${emojiMap.fighting}_${emojiMap.electricity}`]: { 
+  name: 'Thunderous Punch', 
+  description: `Delivers a 
+  lightning-charged punch, shocking 
+  the enemy with 85% hybrid damage. 
+  Has a 70% chance to cause 
+  "Electro Impact", paralyzing 
+  the enemy for 1 turn.` 
+},
 
-    [`${emojiMap.dark}_${emojiMap.light}`]: { name: 'Eclipse', description: `Plunges the battlefield into darkness, followed by a blinding flash of light, dealing 120% hybrid damage. Has a 50% chance to inflict Blindness, reducing the enemy's accuracy by 20% for 2 turns.` },
-    [`${emojiMap.light}_${emojiMap.dark}`]: { name: 'Eclipse', description: `Plunges the battlefield into darkness, followed by a blinding flash of light, dealing 120% hybrid damage. Has a 50% chance to inflict Blindness, reducing the enemy's accuracy by 20% for 2 turns.` },
+[`${emojiMap.dark}_${emojiMap.fighting}`]: { 
+  name: 'Shadow Strike', 
+  description: `Engages in shadowy 
+  combat techniques, dealing 80% 
+  hybrid damage. Has a 75% chance 
+  to cause "Dark Impact", reducing e
+  nemy accuracy by 15% for 1 turn.` 
+},
+[`${emojiMap.fighting}_${emojiMap.dark}`]: { 
+  name: 'Shadow Strike', 
+  description: `Engages in shadowy 
+  combat techniques, dealing 80% 
+  hybrid damage. Has a 75% chance 
+  to cause "Dark Impact", reducing e
+  nemy accuracy by 15% for 1 turn.` 
+},
+//30
+    [`${emojiMap.light}_${emojiMap.fighting}`]: { 
+    name: 'Radiant Fist', 
+    description: `Channels radiant 
+    energy into a powerful strike, 
+    dealing 85% hybrid damage. Has 
+    a 70% chance to cause "Light Impact", 
+    blinding the enemy for 1 turn.` 
+},
+[`${emojiMap.fighting}_${emojiMap.light}`]: { 
+    name: 'Radiant Fist', 
+    description: `Channels radiant 
+    energy into a powerful strike, 
+    dealing 85% hybrid damage. Has 
+    a 70% chance to cause "Light Impact", 
+    blinding the enemy for 1 turn.` 
+},
 
-    [`${emojiMap.dark}_${emojiMap.overpowered}`]: { name: 'Overwhelming Void', description: `Unleashes an ${emojiMap.overpowered} void of darkness, engulfing enemies and dealing 130% hybrid damage. Has a 50% chance to inflict Void Corruption, preventing enemies from receiving healing for 2 turns.` },
-    [`${emojiMap.overpowered}_${emojiMap.dark}`]: { name: 'Overwhelming Void', description: `Unleashes an ${emojiMap.overpowered} void of darkness, engulfing enemies and dealing 130% hybrid damage. Has a 50% chance to inflict Void Corruption, preventing enemies from receiving healing for 2 turns.` },
+[`${emojiMap.metal}_${emojiMap.fighting}`]: { 
+    name: 'Steel Smash', 
+    description: `Delivers a crushing 
+    blow infused with metallic energy, 
+    dealing 95% hybrid damage. Has a 75% 
+    chance to cause "Metallic Crush", 
+    reducing enemy defense by 20% for 
+    2 turns.` 
+},
+[`${emojiMap.fighting}_${emojiMap.metal}`]: { 
+    name: 'Steel Smash', 
+    description: `Delivers a crushing 
+    blow infused with metallic energy, 
+    dealing 95% hybrid damage. Has a 75% 
+    chance to cause "Metallic Crush", 
+    reducing enemy defense by 20% for 
+    2 turns.` 
+},
 
-    [`${emojiMap.light}_${emojiMap.overpowered}`]: { name: 'Overwhelming Radiance', description: `Radiates an ${emojiMap.overpowered} aura of blinding light, purging enemies with divine energy and dealing 140% hybrid damage. Has a 50% chance to inflict Radiant Cleansing, removing all buffs from enemies.` },
-    [`${emojiMap.overpowered}_${emojiMap.light}`]: { name: 'Overwhelming Radiance', description: `Radiates an ${emojiMap.overpowered} aura of blinding light, purging enemies with divine energy and dealing 140% hybrid damage. Has a 50% chance to inflict Radiant Cleansing, removing all buffs from enemies.` },
+[`${emojiMap.overpowered}_${emojiMap.fighting}`]: { 
+    name: 'Overwhelming Assault', 
+    description: `Unleashes a devastating 
+    flurry of blows empowered by raw energy, 
+    dealing 110% hybrid damage. Has a 50% 
+    chance to cause "Power Surge", increasing 
+    critical hit chance by 25% for 2 turns.` 
+  },
+[`${emojiMap.fighting}_${emojiMap.overpowered}`]: { 
+    name: 'Overwhelming Assault', 
+    description: `Unleashes a devastating 
+    flurry of blows empowered by raw energy, 
+    dealing 110% hybrid damage. Has a 50% 
+    chance to cause "Power Surge", increasing 
+    critical hit chance by 25% for 2 turns.` 
+},
 
-    [`${emojiMap.fire}_${emojiMap.fighting}`]: { name: 'Blaze Combo', description: `Unleashes a flurry of fiery punches and kicks, dealing 80% hybrid damage. Has a 75% chance to cause "Flame Fury", increasing damage dealt by 15% for the next turn.` },
-    [`${emojiMap.fighting}_${emojiMap.fire}`]: { name: 'Blaze Combo', description: `Unleashes a flurry of fiery punches and kicks, dealing 80% hybrid damage. Has a 75% chance to cause "Flame Fury", increasing damage dealt by 15% for the next turn.` },
+[`${emojiMap.fire}_${emojiMap.neutral}`]: { 
+    name: 'Balanced Inferno', 
+    description: `Unleashes a moderate 
+    blaze, dealing 80% hybrid damage. 
+    Has an equal chance to cause 
+    "Heat Surge" or "Heat Sink". 
+    Heat Surge increases damage by 
+    10% for the next turn, while 
+    Heat Sink decreases enemy 
+    accuracy by 10% for 1 turn.` 
+  },
+[`${emojiMap.neutral}_${emojiMap.fire}`]: { 
+    name: 'Balanced Inferno', 
+    description: `Unleashes a moderate 
+    blaze, dealing 80% hybrid damage. 
+    Has an equal chance to cause 
+    "Heat Surge" or "Heat Sink". 
+    Heat Surge increases damage by 
+    10% for the next turn, while 
+    Heat Sink decreases enemy 
+    accuracy by 10% for 1 turn.` 
+},
 
-    [`${emojiMap.water}_${emojiMap.fighting}`]: { name: 'Aqua Barrage', description: `Unleashes a rapid barrage of water-infused strikes, dealing 85% hybrid damage. Has a 70% chance to cause "Hydro Surge", decreasing enemy speed by 15% for 2 turns.` },
-    [`${emojiMap.fighting}_${emojiMap.water}`]: { name: 'Aqua Barrage', description: `Unleashes a rapid barrage of water-infused strikes, dealing 85% hybrid damage. Has a 70% chance to cause "Hydro Surge", decreasing enemy speed by 15% for 2 turns.` },
+[`${emojiMap.wind}_${emojiMap.neutral}`]: { 
+    name: 'Tempered Gust', 
+    description: `Sends forth a moderate 
+    gale, dealing 80% hybrid damage. 
+    Has an equal chance to cause 
+    "Gale Force" or "Gale Shield". 
+    Gale Force increases speed by 10% 
+    for 1 turn, while Gale Shield 
+    increases defense by 10% for 1 turn.` 
+  },
+[`${emojiMap.neutral}_${emojiMap.wind}`]: { 
+    name: 'Tempered Gust', 
+    description: `Sends forth a moderate 
+    gale, dealing 80% hybrid damage. 
+    Has an equal chance to cause 
+    "Gale Force" or "Gale Shield". 
+    Gale Force increases speed by 10% 
+    for 1 turn, while Gale Shield 
+    increases defense by 10% for 1 turn.` 
+},
+//35
+[`${emojiMap.water}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Torrent', 
+  description: `Unleashes a moderate 
+  torrent, dealing 80% hybrid damage. 
+  Has an equal chance to cause 
+  "Torrential Surge" or "Torrential Barrier". 
+  Torrential Surge increases critical hit 
+  chance by 15% for 1 turn, while 
+  Torrential Barrier increases resistance 
+  by 10% for 1 turn.` 
+},
+[`${emojiMap.neutral}_${emojiMap.water}`]: { 
+  name: 'Balanced Torrent', 
+  description: `Unleashes a moderate 
+  torrent, dealing 80% hybrid damage. 
+  Has an equal chance to cause 
+  "Torrential Surge" or "Torrential Barrier". 
+  Torrential Surge increases critical hit 
+  chance by 15% for 1 turn, while 
+  Torrential Barrier increases resistance
+   by 10% for 1 turn.` 
+},
 
-    [`${emojiMap.wind}_${emojiMap.fighting}`]: { name: 'Tempest Strike', description: `Executes a swift and powerful strike imbued with the force of wind, dealing 85% hybrid damage. Has a 70% chance to cause "Aero Impact", knocking the enemy back one tile.` },
-    [`${emojiMap.fighting}_${emojiMap.wind}`]: { name: 'Tempest Strike', description: `Executes a swift and powerful strike imbued with the force of wind, dealing 85% hybrid damage. Has a 70% chance to cause "Aero Impact", knocking the enemy back one tile.` },
+[`${emojiMap.earth}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Quake', 
+  description: `Unleashes a moderate 
+  tremor, dealing 80% hybrid damage. 
+  Has an equal chance to cause 
+  "Quake Impact" or "Quake Shield". 
+  Quake Impact stuns the enemy 
+  for 1 turn, while Quake Shield 
+  grants immunity to status effects 
+  for 1 turn.` 
+},
+[`${emojiMap.neutral}_${emojiMap.earth}`]: { 
+  name: 'Balanced Quake', 
+  description: `Unleashes a moderate 
+  tremor, dealing 80% hybrid damage. 
+  Has an equal chance to cause 
+  "Quake Impact" or "Quake Shield". 
+  Quake Impact stuns the enemy 
+  for 1 turn, while Quake Shield 
+  grants immunity to status effects 
+  for 1 turn.` 
+},
 
-    [`${emojiMap.earth}_${emojiMap.fighting}`]: { name: 'Tectonic Uppercut', description: `Delivers a powerful uppercut infused with earth energy, dealing 90% hybrid damage. Has a 70% chance to cause "Quake Impact", stunning the enemy for 1 turn.` },
-    [`${emojiMap.fighting}_${emojiMap.earth}`]: { name: 'Tectonic Uppercut', description: `Delivers a powerful uppercut infused with earth energy, dealing 90% hybrid damage. Has a 70% chance to cause "Quake Impact", stunning the enemy for 1 turn.` },
+[`${emojiMap.electricity}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Surge', 
+  description: `Unleashes a moderate 
+  surge, dealing 80% hybrid damage. 
+  Has an equal chance to cause 
+  "Surge Shock" or "Surge Shield". 
+  Surge Shock paralyzes the enemy 
+  for 1 turn, while Surge Shield 
+  grants immunity to damage for 1 turn.` 
+},
+[`${emojiMap.neutral}_${emojiMap.electricity}`]: { 
+  name: 'Balanced Surge', 
+  description: `Unleashes a moderate 
+  surge, dealing 80% hybrid damage. 
+  Has an equal chance to cause 
+  "Surge Shock" or "Surge Shield". 
+  Surge Shock paralyzes the enemy 
+  for 1 turn, while Surge Shield 
+  grants immunity to damage for 1 turn.` 
+},
 
-    [`${emojiMap.electricity}_${emojiMap.fighting}`]: { name: 'Thunderous Punch', description: `Delivers a lightning-charged punch, shocking the enemy with 85% hybrid damage. Has a 70% chance to cause "Electro Impact", paralyzing the enemy for 1 turn.` },
-    [`${emojiMap.fighting}_${emojiMap.electricity}`]: { name: 'Thunderous Punch', description: `Delivers a lightning-charged punch, shocking the enemy with 85% hybrid damage. Has a 70% chance to cause "Electro Impact", paralyzing the enemy for 1 turn.` },
+[`${emojiMap.overpowered}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Explosion', 
+  description: `Triggers a controlled 
+  explosion, dealing 90% hybrid damage. 
+  Has an equal chance to cause 
+  "Energy Burst" or "Energy Shield". 
+  Energy Burst deals 15% DOT damage 
+  for 2 turns, while Energy Shield 
+  grants immunity to DOT damage 
+  for 2 turns.` 
+},
+[`${emojiMap.neutral}_${emojiMap.overpowered}`]: { 
+  name: 'Balanced Explosion', 
+  description: `Triggers a controlled 
+  explosion, dealing 90% hybrid damage. 
+  Has an equal chance to cause 
+  "Energy Burst" or "Energy Shield". 
+  Energy Burst deals 15% DOT damage 
+  for 2 turns, while Energy Shield 
+  grants immunity to DOT damage 
+  for 2 turns.` 
+},
 
-    [`${emojiMap.dark}_${emojiMap.fighting}`]: { name: 'Shadow Strike', description: `Engages in shadowy combat techniques, dealing 80% hybrid damage. Has a 75% chance to cause "Dark Impact", reducing enemy accuracy by 15% for 1 turn.` },
-    [`${emojiMap.fighting}_${emojiMap.dark}`]: { name: 'Shadow Strike', description: `Engages in shadowy combat techniques, dealing 80% hybrid damage. Has a 75% chance to cause "Dark Impact", reducing enemy accuracy by 15% for 1 turn.` },
+[`${emojiMap.dark}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Darkness', 
+  description: `Unleashes a moderate 
+  shadowy blast, dealing 80% hybrid 
+  damage. Has an equal chance to cause 
+  "Shadow Siphon" or "Shadow Shield". 
+  Shadow Siphon drains enemy health 
+  by 10% and heals the user for the 
+  same amount, while Shadow Shield 
+  grants immunity to hybrid damage 
+  for 1 turn.` 
+},
+[`${emojiMap.neutral}_${emojiMap.dark}`]: { 
+  name: 'Balanced Darkness', 
+  description: `Unleashes a moderate 
+  shadowy blast, dealing 80% hybrid 
+  damage. Has an equal chance to cause 
+  "Shadow Siphon" or "Shadow Shield". 
+  Shadow Siphon drains enemy health 
+  by 10% and heals the user for the 
+  same amount, while Shadow Shield 
+  grants immunity to hybrid damage 
+  for 1 turn.` 
+},
+//40
+[`${emojiMap.fighting}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Combat', 
+  description: `Engages in a balanced 
+  combat style, dealing 80% hybrid damage. 
+  Has an equal chance to cause "Combat Stance" 
+  or "Counterstrike". Combat Stance increases 
+  defense by 15% for 1 turn, while Counterstrike 
+  deals 120% damage if the enemy attacks.` 
+},
+[`${emojiMap.neutral}_${emojiMap.fighting}`]: { 
+  name: 'Balanced Combat', 
+  description: `Engages in a balanced 
+  combat style, dealing 80% hybrid damage. 
+  Has an equal chance to cause "Combat Stance" 
+  or "Counterstrike". Combat Stance increases 
+  defense by 15% for 1 turn, while Counterstrike 
+  deals 120% damage if the enemy attacks.` 
+},
 
-    [`${emojiMap.light}_${emojiMap.fighting}`]: { name: 'Radiant Fist', description: `Channels radiant energy into a powerful strike, dealing 85% hybrid damage. Has a 70% chance to cause "Light Impact", blinding the enemy for 1 turn.` },
-    [`${emojiMap.fighting}_${emojiMap.light}`]: { name: 'Radiant Fist', description: `Channels radiant energy into a powerful strike, dealing 85% hybrid damage. Has a 70% chance to cause "Light Impact", blinding the enemy for 1 turn.` },
+[`${emojiMap.light}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Radiance', 
+  description: `Channels a balanced
+  burst of radiant energy, dealing
+  80% hybrid damage. Has an equal 
+  chance to cause "Radiant Surge" 
+  or "Radiant Shield". Radiant Surge 
+  increases accuracy by 15% for 1 turn, 
+  while Radiant Shield grants immunity 
+  to status effects for 1 turn.` 
+},
+[`${emojiMap.neutral}_${emojiMap.light}`]: { 
+  name: 'Balanced Radiance', 
+  description: `Channels a balanced
+  burst of radiant energy, dealing
+  80% hybrid damage. Has an equal 
+  chance to cause "Radiant Surge" 
+  or "Radiant Shield". Radiant Surge 
+  increases accuracy by 15% for 1 turn, 
+  while Radiant Shield grants immunity 
+  to status effects for 1 turn.` 
+},
 
-    [`${emojiMap.metal}_${emojiMap.fighting}`]: { name: 'Steel Smash', description: `Delivers a crushing blow infused with metallic energy, dealing 95% hybrid damage. Has a 75% chance to cause "Metallic Crush", reducing enemy defense by 20% for 2 turns.` },
-    [`${emojiMap.fighting}_${emojiMap.metal}`]: { name: 'Steel Smash', description: `Delivers a crushing blow infused with metallic energy, dealing 95% hybrid damage. Has a 75% chance to cause "Metallic Crush", reducing enemy defense by 20% for 2 turns.` },
+[`${emojiMap.metal}_${emojiMap.neutral}`]: { 
+  name: 'Balanced Strike', 
+  description: `Delivers a balanced
+  metallic strike, dealing 80% 
+  hybrid damage. Has an equal 
+  chance to cause "Metallic Surge" 
+  or "Metallic Shield". Metallic Surge 
+  increases critical hit chance by 15%
+  for 1 turn, while Metallic Shield 
+  grants immunity to damage for 1 turn.` 
+},
+[`${emojiMap.neutral}_${emojiMap.metal}`]: { 
+  name: 'Balanced Strike', 
+  description: `Delivers a balanced
+  metallic strike, dealing 80% 
+  hybrid damage. Has an equal 
+  chance to cause "Metallic Surge" 
+  or "Metallic Shield". Metallic Surge 
+  increases critical hit chance by 15%
+  for 1 turn, while Metallic Shield 
+  grants immunity to damage for 1 turn.` 
+},
 
-    [`${emojiMap.overpowered}_${emojiMap.fighting}`]: { name: 'Overwhelming Assault', description: `Unleashes a devastating flurry of blows empowered by raw energy, dealing 110% hybrid damage. Has a 50% chance to cause "Power Surge", increasing critical hit chance by 25% for 2 turns.` },
-    [`${emojiMap.fighting}_${emojiMap.overpowered}`]: { name: 'Overwhelming Assault', description: `Unleashes a devastating flurry of blows empowered by raw energy, dealing 110% hybrid damage. Has a 50% chance to cause "Power Surge", increasing critical hit chance by 25% for 2 turns.` },
-
-    [`${emojiMap.fire}_${emojiMap.neutral}`]: { name: 'Balanced Inferno', description: `Unleashes a moderate blaze, dealing 80% hybrid damage. Has an equal chance to cause "Heat Surge" or "Heat Sink". Heat Surge increases damage by 10% for the next turn, while Heat Sink decreases enemy accuracy by 10% for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.fire}`]: { name: 'Balanced Inferno', description: `Unleashes a moderate blaze, dealing 80% hybrid damage. Has an equal chance to cause "Heat Surge" or "Heat Sink". Heat Surge increases damage by 10% for the next turn, while Heat Sink decreases enemy accuracy by 10% for 1 turn.` },
-
-    [`${emojiMap.wind}_${emojiMap.neutral}`]: { name: 'Tempered Gust', description: `Sends forth a moderate gale, dealing 80% hybrid damage. Has an equal chance to cause "Gale Force" or "Gale Shield". Gale Force increases speed by 10% for 1 turn, while Gale Shield increases defense by 10% for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.wind}`]: { name: 'Tempered Gust', description: `Sends forth a moderate gale, dealing 80% hybrid damage. Has an equal chance to cause "Gale Force" or "Gale Shield". Gale Force increases speed by 10% for 1 turn, while Gale Shield increases defense by 10% for 1 turn.` },
-
-    [`${emojiMap.water}_${emojiMap.neutral}`]: { name: 'Balanced Torrent', description: `Unleashes a moderate torrent, dealing 80% hybrid damage. Has an equal chance to cause "Torrential Surge" or "Torrential Barrier". Torrential Surge increases critical hit chance by 15% for 1 turn, while Torrential Barrier increases resistance by 10% for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.water}`]: { name: 'Balanced Torrent', description: `Unleashes a moderate torrent, dealing 80% hybrid damage. Has an equal chance to cause "Torrential Surge" or "Torrential Barrier". Torrential Surge increases critical hit chance by 15% for 1 turn, while Torrential Barrier increases resistance by 10% for 1 turn.` },
-
-    [`${emojiMap.earth}_${emojiMap.neutral}`]: { name: 'Balanced Quake', description: `Unleashes a moderate tremor, dealing 80% hybrid damage. Has an equal chance to cause "Quake Impact" or "Quake Shield". Quake Impact stuns the enemy for 1 turn, while Quake Shield grants immunity to status effects for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.earth}`]: { name: 'Balanced Quake', description: `Unleashes a moderate tremor, dealing 80% hybrid damage. Has an equal chance to cause "Quake Impact" or "Quake Shield". Quake Impact stuns the enemy for 1 turn, while Quake Shield grants immunity to status effects for 1 turn.` },
-
-    [`${emojiMap.electricity}_${emojiMap.neutral}`]: { name: 'Balanced Surge', description: `Unleashes a moderate surge, dealing 80% hybrid damage. Has an equal chance to cause "Surge Shock" or "Surge Shield". Surge Shock paralyzes the enemy for 1 turn, while Surge Shield grants immunity to damage for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.electricity}`]: { name: 'Balanced Surge', description: `Unleashes a moderate surge, dealing 80% hybrid damage. Has an equal chance to cause "Surge Shock" or "Surge Shield". Surge Shock paralyzes the enemy for 1 turn, while Surge Shield grants immunity to damage for 1 turn.` },
-
-    [`${emojiMap.overpowered}_${emojiMap.neutral}`]: { name: 'Balanced Explosion', description: `Triggers a controlled explosion, dealing 90% hybrid damage. Has an equal chance to cause "Energy Burst" or "Energy Shield". Energy Burst deals 15% DOT damage for 2 turns, while Energy Shield grants immunity to DOT damage for 2 turns.` },
-    [`${emojiMap.neutral}_${emojiMap.overpowered}`]: { name: 'Balanced Explosion', description: `Triggers a controlled explosion, dealing 90% hybrid damage. Has an equal chance to cause "Energy Burst" or "Energy Shield". Energy Burst deals 15% DOT damage for 2 turns, while Energy Shield grants immunity to DOT damage for 2 turns.` },
-
-    [`${emojiMap.dark}_${emojiMap.neutral}`]: { name: 'Balanced Darkness', description: `Unleashes a moderate shadowy blast, dealing 80% hybrid damage. Has an equal chance to cause "Shadow Siphon" or "Shadow Shield". Shadow Siphon drains enemy health by 10% and heals the user for the same amount, while Shadow Shield grants immunity to hybrid damage for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.dark}`]: { name: 'Balanced Darkness', description: `Unleashes a moderate shadowy blast, dealing 80% hybrid damage. Has an equal chance to cause "Shadow Siphon" or "Shadow Shield". Shadow Siphon drains enemy health by 10% and heals the user for the same amount, while Shadow Shield grants immunity to hybrid damage for 1 turn.` },
-
-    [`${emojiMap.fighting}_${emojiMap.neutral}`]: { name: 'Balanced Combat', description: `Engages in a balanced combat style, dealing 80% hybrid damage. Has an equal chance to cause "Combat Stance" or "Counterstrike". Combat Stance increases defense by 15% for 1 turn, while Counterstrike deals 120% damage if the enemy attacks.` },
-    [`${emojiMap.neutral}_${emojiMap.fighting}`]: { name: 'Balanced Combat', description: `Engages in a balanced combat style, dealing 80% hybrid damage. Has an equal chance to cause "Combat Stance" or "Counterstrike". Combat Stance increases defense by 15% for 1 turn, while Counterstrike deals 120% damage if the enemy attacks.` },
-
-    [`${emojiMap.light}_${emojiMap.neutral}`]: { name: 'Balanced Radiance', description: `Channels a balanced burst of radiant energy, dealing 80% hybrid damage. Has an equal chance to cause "Radiant Surge" or "Radiant Shield". Radiant Surge increases accuracy by 15% for 1 turn, while Radiant Shield grants immunity to status effects for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.light}`]: { name: 'Balanced Radiance', description: `Channels a balanced burst of radiant energy, dealing 80% hybrid damage. Has an equal chance to cause "Radiant Surge" or "Radiant Shield". Radiant Surge increases accuracy by 15% for 1 turn, while Radiant Shield grants immunity to status effects for 1 turn.` },
-
-    [`${emojiMap.metal}_${emojiMap.neutral}`]: { name: 'Balanced Strike', description: `Delivers a balanced metallic strike, dealing 80% hybrid damage. Has an equal chance to cause "Metallic Surge" or "Metallic Shield". Metallic Surge increases critical hit chance by 15% for 1 turn, while Metallic Shield grants immunity to damage for 1 turn.` },
-    [`${emojiMap.neutral}_${emojiMap.metal}`]: { name: 'Balanced Strike', description: `Delivers a balanced metallic strike, dealing 80% hybrid damage. Has an equal chance to cause "Metallic Surge" or "Metallic Shield". Metallic Surge increases critical hit chance by 15% for 1 turn, while Metallic Shield grants immunity to damage for 1 turn.` },
-
+[`${emojiMap.metal}_${emojiMap.dark}`]: { 
+  name: 'Shadowed Strike', 
+  description: `Executes a shadowy
+  metallic strike, dealing 80% hybrid
+  damage. Has an equal chance to cause
+  "Shadow Surge" or "Shadow Veil". 
+  Shadow Surge increases critical hit
+  chance by 15% for 1 turn, while 
+  Shadow Veil grants evasion against 
+  physical attacks for 1 turn.` 
+},
+[`${emojiMap.dark}_${emojiMap.metal}`]: { 
+  name: 'Shadowed Strike', 
+  description: `Executes a shadowy
+  metallic strike, dealing 80% hybrid
+  damage. Has an equal chance to cause
+  "Shadow Surge" or "Shadow Veil". 
+  Shadow Surge increases critical hit
+  chance by 15% for 1 turn, while 
+  Shadow Veil grants evasion against 
+  physical attacks for 1 turn.` 
+},
+//44
   };
 
   const key = `${element}_${baseElement}`;
   return abilities[key] || { name: 'No special ability', description: 'Two identical elements offer no special ability or advantage.' };
 }
 
-function findMatchingCharacters(searchTerm) {
-  // Filtruj postacie, których nazwa lub seria zawiera wprowadzoną frazę (bez uwzględniania wielkości liter)
-  return characters.filter(
-    (char) =>
-      (char.name && char.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (char.series && char.series.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
-}
-
-function displayCharacterList(msg, matchingCharacters) {
-  if (matchingCharacters.length === 0) {
-    msg.reply('No characters found with that name or series.');
-  } else if (matchingCharacters.length === 1) {
-    // Jeżeli jest jedna pasująca postać, wyświetl jej nazwę i serię
-    const character = matchingCharacters[0];
-    msg.reply(`Character found: ${character.name} from ${character.series}.`);
-  } else {
-    // Jeżeli jest więcej niż jedna pasująca postać, wyświetl listę z numerami
-    const characterList = matchingCharacters.map(
-      (char, index) => `${index + 1}. ${char.name} from ${char.series}`
-    );
-    msg.reply(`Multiple characters found. Please choose a number:\n${characterList.join('\n')}`);
-  }
-}
-
+// Function to create embed for card information
 function createCardInfoEmbed(cardInfo) {
   // Emoji representations for statistics
   const emojiMap = {
@@ -1978,27 +2514,17 @@ function createCardInfoEmbed(cardInfo) {
       { name: 'Elements', value: `${cardInfo.element || 'N/A'} \u2022 ${cardInfo.base_element || 'N/A'}` },
       {
         name: 'Stats',
-        value: `**STR:** ${
-          cardInfo.strength !== null ? cardInfo.strength + emojiMap.strength : 'N/A'
-        } | **DEF:** ${
-          cardInfo.defense !== null ? cardInfo.defense + emojiMap.defense : 'N/A'
-        } | **AGI:** ${
-          cardInfo.agility !== null ? cardInfo.agility + emojiMap.agility : 'N/A'
-        } | **WIS:** ${
-          cardInfo.wisdom !== null ? cardInfo.wisdom + emojiMap.wisdom : 'N/A'
-        } | **ENG:** ${
-          cardInfo.energy !== null ? cardInfo.energy + emojiMap.energy : 'N/A'
-        } | **LCK:** ${
-          cardInfo.luck !== null ? cardInfo.luck + emojiMap.luck : 'N/A'
-        }`,
+        value: `**STR:** ${cardInfo.strength !== null ? cardInfo.strength + emojiMap.strength : 'N/A'} | **DEF:** ${cardInfo.defense !== null ? cardInfo.defense + emojiMap.defense : 'N/A'} | **AGI:** ${cardInfo.agility !== null ? cardInfo.agility + emojiMap.agility : 'N/A'}
+        **WIS:** ${cardInfo.wisdom !== null ? cardInfo.wisdom + emojiMap.wisdom : 'N/A'} | **ENG:** ${cardInfo.energy !== null ? cardInfo.energy + emojiMap.energy : 'N/A'} | **LCK:** ${cardInfo.luck !== null ? cardInfo.luck + emojiMap.luck : 'N/A'}`,
       },
       { name: 'Special Ability', value: abilityValue },
     ],
     image: { url: cardInfo.card_url },
-    footer: { text: 'Legend: STR (Strength), DEF (Defense), AGI (Agility), WIS (Wisdom), ENG (Energy), LCK (Luck)' },
+    Footer: { text: 'Legend:\n STR (Strength), DEF (Defense),\nAGI (Agility), WIS (Wisdom),\nENG (Energy), LCK (Luck)' }
   };
 }
 
+// Function to get emoji for an element
 function getEmojiForElement(element) {
   switch (element) {
     case 'fire':
@@ -2028,8 +2554,7 @@ function getEmojiForElement(element) {
   }
 }
 
-
-
+// Function to get user's item amount from database
 async function getUserItemsAmount(userId, itemType) {
   return new Promise((resolve, reject) => {
     connection.query('SELECT item_amount FROM user_items WHERE user_id = ? AND item_type = ?', [userId, itemType], (err, results) => {
@@ -2043,6 +2568,8 @@ async function getUserItemsAmount(userId, itemType) {
   });
 }
 
+
+// Function to get a random element with given chances
 function getRandomElementWithChances(elements, chances) {
   const totalChances = chances.reduce((acc, chance) => acc + chance, 0);
   const randomNum = Math.floor(Math.random() * totalChances);
@@ -2055,10 +2582,11 @@ function getRandomElementWithChances(elements, chances) {
       }
   }
 
-  // W razie jakiegoś błędu zwróć domyślny element
+  // Return default element in case of any error
   return elements[0];
 }
 
+// Function to add card information to the database
 function addCardInfoToDatabase(cardName, latestPrint) {
   const query = 'INSERT INTO card_info (card_name, latest_print) VALUES (?, ?)';
   const values = [cardName, latestPrint];
@@ -2072,24 +2600,10 @@ function addCardInfoToDatabase(cardName, latestPrint) {
   });
 }
 
+// Function to update user's item amount in the database
 async function updateUserItemsAmount(userId, itemType, newAmount) {
   return new Promise((resolve, reject) => {
     connection.query('INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = VALUES(item_amount)', [userId, itemType, newAmount], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-}
-
-async function removeUserItems(userId, itemType, amount) {
-  return new Promise((resolve, reject) => {
-    const query = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ? AND item_amount >= ?';
-    const values = [amount, userId, itemType, amount];
-
-    connection.query(query, values, (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -2109,6 +2623,7 @@ function getRandomColor() {
   return color;
 }
 
+// Function to get user data from the database
 async function getUserData(userId) {
   return new Promise((resolve, reject) => {
     const query = 'SELECT * FROM user_items WHERE user_id = ?';
@@ -2126,6 +2641,8 @@ async function getUserData(userId) {
   });
 }
 
+
+// Function to deduct item from user's inventory
 async function deductItemFromInventory(userId, itemType, amount) {
   return new Promise((resolve, reject) => {
     const query = 'UPDATE user_items SET item_amount = item_amount - ? WHERE user_id = ? AND item_type = ?';
@@ -2139,6 +2656,7 @@ async function deductItemFromInventory(userId, itemType, amount) {
   });
 }
 
+// Function to add item to user's inventory
 async function addItemToInventory(userId, itemType, amount) {
   return new Promise((resolve, reject) => {
     const query = 'INSERT INTO user_items (user_id, item_type, item_amount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_amount = item_amount + VALUES(item_amount)';
@@ -2182,21 +2700,22 @@ async function addItemsToUser(userId) {
   });
 }
 
-// Start of functions
+// Function to get random images
 const getRandomImages = () => {
-    const selectedImages = [];
+  const selectedImages = [];
 
-    while (selectedImages.length < 3) {
-      const randomImage = imageUrls[Math.floor(Math.random() * imageUrls.length)];
+  while (selectedImages.length < 3) {
+    const randomImage = imageUrls[Math.floor(Math.random() * imageUrls.length)];
 
-      if (!selectedImages.some((image) => image.name === randomImage.name)) {
-        selectedImages.push(randomImage);
-      }
+    if (!selectedImages.some((image) => image.name === randomImage.name)) {
+      selectedImages.push(randomImage);
     }
+  }
 
-    return selectedImages;
-  };
+  return selectedImages;
+};
 
+// Function to save updated imageUrls to file
 function saveUpdatedImageUrls() {
   try {
     // Save the images to the file
@@ -2207,6 +2726,7 @@ function saveUpdatedImageUrls() {
   }
 }
 
+// Function to add player to database
 function addPlayerToDatabase(userId, username) {
   const query = 'INSERT INTO players (user_id, username) VALUES (?, ?)';
   const values = [userId, username];
@@ -2220,10 +2740,13 @@ function addPlayerToDatabase(userId, username) {
   });
 }
 
+
+// Function to get a random number within a specified range
 function getRandomNumberInRange(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
+// Function to add card to the database
 function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement) {
   // Find the image object with the matching name in imageUrls
   const imageObject = imageUrls.find((image) => image.name === cardName);
@@ -2267,10 +2790,7 @@ function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, serie
   });
 }
 
-
-
-
-
+// Function to delete old codes from the database
 async function deleteOldCodes() {
   return new Promise((resolve, reject) => {
     // Get the maximum ID
@@ -2298,190 +2818,221 @@ async function deleteOldCodes() {
     });
   });
 }
+
+// Function to generate a unique code
 async function generateUniqueCode() {
-    return new Promise((resolve, reject) => {
-      const codeCharacters = 'abcdefghijklmnopqrstuvwxyz0123456789';
-      let codeLength = 3;
-      let code;
-  
-      if (!existingCodes[codeLength]) {
-        existingCodes[codeLength] = {};
-      }
-  
-      // Use the last generated code if available
-      if (lastGeneratedCode) {
-        code = lastGeneratedCode;
-        lastGeneratedCode = ''; // Reset so that the next code will be generated normally
-        resolve(code);
-      } else {
-        // Fetch the latest code from the database
-        connection.query('SELECT * FROM last_code_table ORDER BY id DESC LIMIT 1', (fetchErr, fetchResults) => {
-          if (fetchErr) {
-            console.error('Error fetching last code from the database:', fetchErr.message);
-            reject(fetchErr);
-          } else {
-            const latestCode = fetchResults[0]?.last_generated_code || '';
-            let nextCode;
-  
-            // Generate the next code based on the latest code
-            do {
-              if (Object.keys(existingCodes[codeLength]).length >= codeCharacters.length ** codeLength) {
-                codeLength++;
-                existingCodes[codeLength] = {};
-              }
-              const base36Count = Object.keys(existingCodes[codeLength]).length.toString(36);
-              nextCode = (parseInt(latestCode, 36) + 1).toString(36).padStart(codeLength, '0');
-            } while (existingCodes[codeLength][nextCode]);
-  
-            existingCodes[codeLength][nextCode] = true;
-  
-            // Save the current code to the database for future use
-            connection.query('INSERT INTO last_code_table (last_generated_code) VALUES (?)', [nextCode], async (err, results) => {
-              if (err) {
-                console.error('Error inserting the newly generated code into the database:', err.message);
-                reject(err);
-              } else {
-                //console.log('The newly generated code has been successfully inserted into the database:', results);
-                // Remove old codes from the database after adding three new codes
-                await deleteOldCodes();
-                resolve(nextCode);
-              }
-            });
-          }
-        });
-      }
-    });
+  return new Promise((resolve, reject) => {
+    const codeCharacters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let codeLength = 3;
+    let code;
+
+    if (!existingCodes[codeLength]) {
+      existingCodes[codeLength] = {};
+    }
+
+    // Use the last generated code if available
+    if (lastGeneratedCode) {
+      code = lastGeneratedCode;
+      lastGeneratedCode = ''; // Reset so that the next code will be generated normally
+      resolve(code);
+    } else {
+      // Fetch the latest code from the database
+      connection.query('SELECT * FROM last_code_table ORDER BY id DESC LIMIT 1', (fetchErr, fetchResults) => {
+        if (fetchErr) {
+          console.error('Error fetching last code from the database:', fetchErr.message);
+          reject(fetchErr);
+        } else {
+          const latestCode = fetchResults[0]?.last_generated_code || '';
+          let nextCode;
+
+          // Generate the next code based on the latest code
+          do {
+            if (Object.keys(existingCodes[codeLength]).length >= codeCharacters.length ** codeLength) {
+              codeLength++;
+              existingCodes[codeLength] = {};
+            }
+            const base36Count = Object.keys(existingCodes[codeLength]).length.toString(36);
+            nextCode = (parseInt(latestCode, 36) + 1).toString(36).padStart(codeLength, '0');
+          } while (existingCodes[codeLength][nextCode]);
+
+          existingCodes[codeLength][nextCode] = true;
+
+          // Save the current code to the database for future use
+          connection.query('INSERT INTO last_code_table (last_generated_code) VALUES (?)', [nextCode], async (err, results) => {
+            if (err) {
+              console.error('Error inserting the newly generated code into the database:', err.message);
+              reject(err);
+            } else {
+              // Remove old codes from the database after adding three new codes
+              await deleteOldCodes();
+              resolve(nextCode);
+            }
+          });
+        }
+      });
+    }
+  });
 }
 
-// Funkcja do sprawdzania czy kod karty jest poprawny
+// Function to check if a card code is valid
 function isValidCardCode(cardCode) {
-  // Sprawdź czy kod karty składa się z liter i cyfr oraz czy ma odpowiednią długość
+  // Check if the card code consists of letters and digits and has the appropriate length
   const regex = /^[a-zA-Z0-9]{3,7}$/;
   return regex.test(cardCode);
 }
 
-// Funkcja do pobierania karty z bazy danych na podstawie kodu karty
+// Function to get a card from the database based on the card code
 async function getCardFromDatabase(cardCode, userId) {
   return new Promise((resolve, reject) => {
-      const query = `SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?`;
-      connection.query(query, [userId, cardCode], (error, results) => {
-          if (error) {
-              reject(error);
-          } else {
-              resolve(results[0]); // Zwróć pierwszy pasujący rekord (jeśli istnieje)
-          }
-      });
+    const query = `SELECT * FROM card_inventory WHERE user_id = ? AND card_code = ?`;
+    connection.query(query, [userId, cardCode], (error, results) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(results[0]); // Return the first matching record (if exists)
+      }
+    });
   });
 }
 
-async function copyCardToAnotherUser(card, targetUserId) {
-  try {
-      // Przykładowe zapytanie SQL do skopiowania rekordu z ekwipunku pierwszego użytkownika do ekwipunku drugiego użytkownika
-      await connection.query('INSERT INTO card_inventory (user_id, card_name, _card_url, card_print, card_code, series, date_added, latest_print, element, base_element) SELECT ?, card_name, _card_url, card_print, card_code, series, date_added, latest_print, element, base_element FROM card_inventory WHERE card_code = ? AND user_id = ?', [targetUserId, card.card_code, card.user_id]);
-
-      console.log('Card copied successfully.');
-  } catch (error) {
-      console.error('Error copying card to another user:', error);
-      throw error; // Rzuć błąd, aby obsłużyć go na wyższym poziomie
-  }
-}
-
-// Funkcja do aktualizacji właściciela karty w bazie danych
-async function updateCardOwner(cardCode, newOwnerId) {
-  return new Promise((resolve, reject) => {
-      connection.query('UPDATE card_inventory SET user_id = ? WHERE card_code = ?', [newOwnerId, cardCode], (error, results) => {
-          if (error) {
-              reject(error);
-          } else {
-              resolve(results);
-          }
-      });
-  });
-}
-
-// Funkcja do ekstrakcji kodów kart z embeda
+// Function to extract card codes from an embed
 function extractCardCodesFromEmbed(embed) {
   const description = embed.description;
-  const regex = /Card Code: (\w+)/g; // Załóżmy, że kody kart mają format "Card Code: XXXXXX"
+  const regex = /Card Code: (\w+)/g; // Assume card codes have the format "Card Code: XXXXXX"
   let match;
   const cardCodes = [];
 
   while ((match = regex.exec(description)) !== null) {
-      cardCodes.push(match[1]);
+    cardCodes.push(match[1]);
   }
 
   return cardCodes;
 }
 
+// Function to switch card ownership
 async function switchCardOwnership(cardCode, newUserId) {
   return new Promise((resolve, reject) => {
-      connection.query('UPDATE card_inventory SET user_id = ? WHERE card_code = ?', [newUserId, cardCode], (error, results) => {
-          if (error) {
-              reject(error);
-          } else {
-              resolve(results);
-          }
-      });
+    connection.query('UPDATE card_inventory SET user_id = ? WHERE card_code = ?', [newUserId, cardCode], (error, results) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(results);
+      }
+    });
   });
 }
 
+// Function to switch ownership for multiple cards
 async function switchOwnershipForCards(cardCodes, newUserId) {
   try {
-      for (const cardCode of cardCodes) {
-          await switchCardOwnership(cardCode, newUserId);
-      }
-      console.log('Card ownership successfully switched for all cards.');
+    for (const cardCode of cardCodes) {
+      await switchCardOwnership(cardCode, newUserId);
+    }
+    console.log('Card ownership successfully switched for all cards.');
   } catch (error) {
-      console.error('Error switching card ownership:', error);
+    console.error('Error switching card ownership:', error);
   }
 }
 
+
+// Function to check if a user exists in the database
 async function isUserExists(userId) {
   return new Promise((resolve, reject) => {
-      connection.query('SELECT * FROM card_inventory WHERE user_id = ?', [userId], (error, results) => {
-          if (error) {
-              reject(error);
-          } else {
-              resolve(results.length > 0);
-          }
-      });
+    connection.query('SELECT * FROM card_inventory WHERE user_id = ?', [userId], (error, results) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(results.length > 0);
+      }
+    });
   });
 }
 
-async function updateProvideItemsMessage() {
-  // Formatowanie kodów kart dla obu graczy
-  const player1CodesFormatted = player1CardCodes.map(code => `Player 1: ${code}`).join('\n');
-  const player2CodesFormatted = player2CardCodes.map(code => `Player 2: ${code}`).join('\n');
-
-  // Tworzenie treści wiadomości z kodami kart dla obu graczy
-  const messageContent = `${player1CodesFormatted}\n\n${player2CodesFormatted}`;
-
-  // Jeśli wiadomość już istnieje, zaktualizuj ją, w przeciwnym razie, wyślij nową wiadomość
-  if (provideItemsMessage) {
-      await provideItemsMessage.edit(messageContent);
-  } else {
-      provideItemsMessage = await msg.channel.send(messageContent);
-  }
-}
-
+// Function to generate an embed containing provided items
 function generateProvideItemsEmbed() {
-  // Formatowanie kodów kart dla obu graczy
+  // Formatting card codes for both players
   const player1CodesFormatted = player1CardCodes.map(code => `${code}`).join('\n');
   const player2CodesFormatted = player2CardCodes.map(code => `${code}`).join('\n');
 
-  // Tworzenie treści Embeda z kodami kart dla obu graczy
+  // Creating embed content with card codes for both players
   const embedContent = `${player1CodesFormatted}\n\n${player2CodesFormatted}`;
 
-  // Tworzenie nowego Embeda z odpowiednią treścią
+  // Creating a new embed with the appropriate content
   const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle('Provide Items')
-      .setDescription(embedContent);
+    .setColor('#0099ff')
+    .setTitle('Provide Items')
+    .setDescription(embedContent);
 
   return embed;
 }
 
+// Function to load the latest prints from the database
+const loadLatestPrintsFromDatabase = async () => {
+  try {
+    const selectMaxPrintsQuery = 'SELECT card_name, MAX(latest_print) AS max_print FROM card_info GROUP BY card_name';
+    const maxPrintResults = await query(selectMaxPrintsQuery);
 
+    const maxPrints = {};
+    maxPrintResults.forEach((row) => {
+      maxPrints[row.card_name] = row.max_print;
+    });
+
+    //console.log('Latest prints loaded from the database:', maxPrints);
+    return maxPrints;
+  } catch (error) {
+    console.error('Error loading latest prints from the database:', error.message);
+    return {};
+  }
+};
+
+
+// Function to load existing prints from the database
+const loadExistingPrintsFromDatabase = async () => {
+  try {
+    const latestPrints = await loadLatestPrintsFromDatabase();
+    existingPrints = { ...latestPrints };
+    //console.log('Existing prints loaded from the latest prints:', existingPrints);
+
+    // Load counters from the database
+    const loadCountsQuery = 'SELECT card_name, latest_print FROM card_info';
+    const counts = await query(loadCountsQuery);
+    counts.forEach((row) => {
+      cardCounts[row.card_name] = row.latest_print;
+    });
+
+    //console.log('Card counts loaded from the database:', cardCounts);
+  } catch (error) {
+    console.error('Error loading existing prints from the latest prints:', error.message);
+  }
+};
+
+// Function to update the latest print in the database
+const updateLatestPrintInDatabase = async (cardName, latestPrint) => {
+  try {
+    //console.log(`Attempting to update latest print in the database for ${cardName} to ${latestPrint}`);
+
+    // Check if latestPrint is a number or string
+    if (typeof latestPrint !== 'string' && typeof latestPrint !== 'number') {
+      console.error(`Error updating latest print in database for ${cardName}: latestPrint must be a string or number.`);
+      return;
+    }
+
+    const updateQuery = 'UPDATE card_info SET latest_print = ? WHERE card_name = ?';
+    const [updateResult] = await connection.execute(updateQuery, [latestPrint, cardName]);
+
+    console.log(`Card: ${cardName}, Latest Print: ${latestPrint}`);
+    console.log('Update result:', updateResult);
+
+    if (updateResult.affectedRows > 0) {
+      console.log(`Updated latest print in the database for ${cardName}.`);
+    } else {
+      console.log(`Failed to update latest print in the database for ${cardName}. No rows affected.`);
+    }
+  } catch (error) {
+    //console.error(`Error updating latest print in database for ${cardName}:`, error.message);
+    //console.error('Error stack:', error.stack);
+  }
+};
 
 // Bot login
 client.login(process.env.TOKEN);

@@ -71,6 +71,6 @@
         last_generated_code VARCHAR(255) NOT NULL
     );
     ```
-# HOW TO RUN PROJECT WITH "NODEMON"?
+# How To Run Project With "NODEMON"?
 
 **Type this in terminal** `npm run test`

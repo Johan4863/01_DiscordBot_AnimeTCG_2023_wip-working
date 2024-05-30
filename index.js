@@ -82,6 +82,27 @@ const shopItems = {
   scroll: { cost: 2, itemType: 'scroll' },
 };
 
+  // Define command aliases
+  const aliases = {
+    'mlalo': ['ml', 'mlalo', 'mdraw', 'msummon'],
+    'maddimage': ['mimageadd', 'maddimg', 'maddimage', 'mimgadd'],
+    'minventory': ['minv', 'mcardinv', 'mcards', 'minv', 'mcardinventory'],
+    'mregister': ['mreg', 'msignup', 'mregister'],
+    'mhelp': ['mh', 'mhelpme', 'mcommands', 'mhelp', 'mcmds'],
+    'mview': ['mv', 'mshow', 'mview', 'mvw'],
+    'mremove': ['mrm', 'mburn', 'mdestroy', 'mremove'],
+    'mitems': ['mit', 'mitem', 'mitems'],
+    'mshop': ['msh', 'mstore', 'mshop'],
+    'mbuy': ['mb', 'mpurchase', 'mbuy'],
+    'mscroll': ['msc', 'mscroll'],
+    'mcardinfo': ['mci', 'mcard', 'mcardinfo'],
+    'maddmoderator': ['maddmod', 'maddmoderator', 'maddmod'],
+    'msearch': ['ms', 'msearch', 'mlook'],
+    'madddescription': ['madddesc', 'madddescription', 'madddesc'],
+    'mtrade': ['mt', 'mtrade'],
+    'mdamage': ['mdmg', 'mdamage'],
+  };
+
 
 // Client initialization
 const client = new Client({
@@ -112,13 +133,25 @@ client.on('ready', async () => {
   loadExistingPrintsFromDatabase();
 });
 
+// Event listener for handling errors
+client.on('error', (error) => {
+  console.error('The bot encountered an error:', error);
+});
+
+// Process unhandled exceptions and restart the bot
+process.on('uncaughtException', (error) => {
+  console.error('Unhandled Exception:', error);
+  console.log('Restarting bot...');
+  startBot(); // Restart the bot
+});
+
 // Database connection
 const connection = mysql.createPool({
   connectionLimit: 10,
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
+  host: "localhost",
+  user: "root",
   password: "",
-  database: process.env.DB_NAME,
+  database: "cardbot",
 });
 
 const query = util.promisify(connection.query).bind(connection);
@@ -136,27 +169,19 @@ process.exit(1);
 client.on('messageCreate', async (msg) => {
   const command = msg.content.toLowerCase(); // Convert command to lowercase for case-insensitivity
 
-  // Define command aliases
-  const aliases = {
-    '!lalo': ['!draw', 'lalo', '!summon','!l'], 
-    '!inventory': ['!cards', '!cardinv', '!inv', '!i'], 
-    '!register': ['!signup'], 
-    '!helpme': ['!commands', '!h'], 
-    '!view': ['!v', '!show'],
-    '!remove': ['!burn', '!destroy', '!rm'], 
-  };
 
-  // Check if the received command is an alias, and replace it with the actual command
+
+  /*// Check if the received command is an alias, and replace it with the actual command
   for (const [actualCommand, aliasList] of Object.entries(aliases)) {
     if (aliasList.includes(command)) {
       msg.content = actualCommand;
       break;
     }
-  }
+  }*/
 
   if (msg.content === 'ping') {
     msg.channel.send('pong');
-  } else if (msg.content === 'mlalo'&& !msg.interaction) {
+  } else if (matchesCommand(msg.content, 'mlalo') && !msg.interaction) {
     if (msg.alreadyExecuted) return; 
 
     msg.alreadyExecuted = true; 
@@ -245,7 +270,11 @@ client.on('messageCreate', async (msg) => {
 
       //console.log('Latest prints before update:', latestPrints);
        // Update the latest print for this card in the database
+       //if(checkPrintExists(selectedImages[i].name==false)){
+       //addCardInfoToDatabase(selectedImages[i].name,cardData.cardPrint)
+       //}else{
        updateLatestPrintInDatabase(selectedImages[i].name, cardData.cardPrint);
+       //}
     }
 
     const buffer = canvas.toBuffer();
@@ -351,7 +380,7 @@ client.on('messageCreate', async (msg) => {
     collector.on('end', () => {
       reply.edit({ components: [] });
     });
-  } else if (msg.content.startsWith('maddimage') && allowedUserIds.includes(msg.author.id)) {
+  } else if (startsWithCommand(msg.content, 'maddimage') && allowedUserIds.includes(msg.author.id)) {
     const args = msg.content.slice('maddimage'.length).trim().split(' ');
   
     if (args.length === 4) {
@@ -383,7 +412,7 @@ client.on('messageCreate', async (msg) => {
     }
   
     return;
-  } else if (msg.content.startsWith('minventory')) {
+  } else if (startsWithCommand(msg.content, 'minventory') && !msg.interaction) {
     const userId = msg.author.id;
     let currentPage = 1;
     const cardsPerPage = 10;
@@ -392,6 +421,8 @@ client.on('messageCreate', async (msg) => {
     // Parse the name parameter from the command
     const match = msg.content.match(/name=(\S+)/);
     const cardName = match ? match[1] : null;
+
+    if (msg.content.length > 'minventory'.length) return;
 
     // Generate unique button IDs based on user, command invocation time, and button type
     const buttonLeftId = `buttonLeft_${userId}_${Date.now()}_inventory`;
@@ -433,10 +464,10 @@ client.on('messageCreate', async (msg) => {
                     return;
                 }
 
-                if (results.length === 0) {
-                    msg.reply(`Your inventory is empty.`);
-                    return;
-                }
+                if (results.length === 0 && !inventoryMessage) { 
+                  msg.reply(`Your inventory is empty.`);
+                  return;
+              }
 
                 let description = `You have ${totalCards} cards.`;
 
@@ -496,6 +527,8 @@ client.on('messageCreate', async (msg) => {
     // Handle button interactions
     client.on('interactionCreate', async (interaction) => {
         if (!interaction.isButton()) return;
+        
+        if (interaction.message.id !== inventoryMessage.id) return;
 
         // Handle Left button
         if (interaction.customId === buttonLeftId||interaction.user.id == msg.author.id) {
@@ -514,7 +547,7 @@ client.on('messageCreate', async (msg) => {
 
     // Initial inventory display
     sendInventory(currentPage);
-  } else if (msg.content === 'mregister') {
+  } else if (matchesCommand(msg.content, 'mregister') && !msg.interaction) {
     const userId = msg.author.id;
 
     // Check if the user exists in the players table
@@ -535,7 +568,7 @@ client.on('messageCreate', async (msg) => {
             }
         }
     });
-  } else if (msg.content === 'mhelp') {
+  } else if (matchesCommand(msg.content, 'mhelp') && !msg.interaction) {
     const embed = new EmbedBuilder()
         .setColor('#0099ff')
         .setTitle('CardBot Commands')
@@ -561,7 +594,7 @@ client.on('messageCreate', async (msg) => {
         );
 
     msg.reply({ embeds: [embed] });
-  } else if (msg.content.startsWith('mview')) {
+  } else if (startsWithCommand(msg.content, 'mview') && !msg.interaction) {
     const userId = msg.author.id;
     const codeToView = msg.content.slice('!view'.length).trim();
 
@@ -647,7 +680,7 @@ client.on('messageCreate', async (msg) => {
             }
         }
     });
-  } else if (msg.content.startsWith('mremove')) {
+  } else if (startsWithCommand(msg.content, 'mremove') && !msg.interaction) {
     const userId = msg.author.id;
     const codeToRemove = msg.content.slice('mremove'.length).trim();
 
@@ -696,7 +729,7 @@ client.on('messageCreate', async (msg) => {
             }
         }
     });
-  } else if (msg.content === 'mitems') {
+  } else if (matchesCommand(msg.content, 'mitems') && !msg.interaction) {
     const userId = msg.author.id;
 
     // Fetch items from user_items table
@@ -727,7 +760,7 @@ client.on('messageCreate', async (msg) => {
             }
         }
     });
-  } else if (msg.content === 'mshop') {
+  } else if (matchesCommand(msg.content, 'mshop') && !msg.interaction) {
     const embed = new EmbedBuilder()
       .setColor('#0099ff')
       .setTitle('Shop')
@@ -744,7 +777,7 @@ client.on('messageCreate', async (msg) => {
       .setTimestamp();
   
     msg.reply({ embeds: [embed] });
-  } else if (msg.content.startsWith('mbuy')) {
+  } else if (startsWithCommand(msg.content, 'mbuy') && !msg.interaction) {
     const args = msg.content.split(' ');
     if (args.length !== 2) {
       return msg.reply('Invalid command. Usage: mbuy <item_name>');
@@ -779,7 +812,7 @@ client.on('messageCreate', async (msg) => {
     await addItemToInventory(msg.author.id, item.itemType, 1);
 
     msg.reply(`You have successfully bought ${itemName}!`);
-  } else if (msg.content.toLowerCase() === 'mscroll') {
+  } else if (matchesCommand(msg.content, 'mscroll') && !msg.interaction) {
     // Check if the user has scrolls
     const userId = msg.author.id;
     const scrollAmount = await getUserItemsAmount(userId, 'scroll');
@@ -812,7 +845,7 @@ client.on('messageCreate', async (msg) => {
 
     // Update user's inventory (subtract 1 scroll)
     await updateUserItemsAmount(userId, 'scroll', scrollAmount - 1);
-  } else if (msg.content.startsWith('mcardinfo')) {
+  } else if (startsWithCommand(msg.content, 'mcardinfo') && !msg.interaction) {
     const cardCode = msg.content.split(' ')[1];
     if (!cardCode) {
       msg.reply('Please provide a card code.');
@@ -844,7 +877,7 @@ client.on('messageCreate', async (msg) => {
         }
       }
     });
-  } else if (msg.content.startsWith('maddmoderator')) {
+  } else if (startsWithCommand(msg.content, 'maddmoderator') && !msg.interaction) {
     // Check if the user executing the command has appropriate permissions
     if (msg.author.id !== allowedUserId) {
       msg.reply('You do not have permission to use this command.');
@@ -883,10 +916,11 @@ client.on('messageCreate', async (msg) => {
     } else {
       msg.reply('Invalid command format. Use !maddmoderator <discord_id> <discord_usertag>.');
     }
-  } else if (msg.content.startsWith('msearch')) {
+  } else if (startsWithCommand(msg.content, 'msearch') && !msg.interaction) {
     // Check if the message content contains at least one word after the command
-    const args = msg.content.slice('msearch'.length).trim().split(' ');
-
+    //const args = msg.content.slice('msearch'.length).trim().split(' ');
+    const matchedAlias = getMatchingAlias(msg.content, 'msearch');
+    const args = msg.content.slice(matchedAlias.length).trim().split(' ');
     if (args.length < 1) {
         msg.reply('Please provide a character name.');
         return;
@@ -977,7 +1011,7 @@ client.on('messageCreate', async (msg) => {
             });
         }
     }
-  } else if (msg.content.startsWith('madddescription')) {
+  } else if (startsWithCommand(msg.content, 'madddescription') && !msg.interaction) {
     const usertag = msg.author.tag;
     const userId = msg.author.id;
     const channel_ = msg.channel.id;
@@ -1159,7 +1193,7 @@ client.on('messageCreate', async (msg) => {
             msg.reply('Command timed out. Please try again.');
         }
     });    
-  } else if (msg.content.toLowerCase().startsWith('mtrade')) {
+  } else if (startsWithCommand(msg.content, 'mtrade') && !msg.interaction) {
     const partialUsername = msg.content.slice('mtrade'.length).trim();
 
     if (!partialUsername) {
@@ -1419,7 +1453,7 @@ client.on('messageCreate', async (msg) => {
     }
 
     lastTradeAuthor = msg.author.username;
-  } else if (msg.content.toLowerCase().startsWith('mdamage')) {
+  } else if (startsWithCommand(msg.content, 'mdamage') && !msg.interaction) {
     const damageFormulaImageUrl = 'https://i.imgur.com/4b1Hfb9.png';
 
     const embed = new EmbedBuilder()
@@ -3034,5 +3068,44 @@ const updateLatestPrintInDatabase = async (cardName, latestPrint) => {
   }
 };
 
-// Bot login
-client.login(process.env.TOKEN);
+// Function to check if message content starts with a command or its alias and return the matched alias
+function getMatchingAlias(content, command) {
+  content = content.toLowerCase();
+  command = command.toLowerCase();
+  if (content.startsWith(command)) return command;
+  if (aliases[command]) {
+    for (let alias of aliases[command]) {
+      if (content.startsWith(alias.toLowerCase())) {
+        return alias.toLowerCase();
+      }
+    }
+  }
+  return null;
+}
+
+// Function to check if message content matches a command or its alias
+function matchesCommand(content, command) {
+  content = content.toLowerCase();
+  command = command.toLowerCase();
+  return content === command || (aliases[command] && aliases[command].map(alias => alias.toLowerCase()).includes(content));
+}
+
+// Function to check if message content starts with a command or its alias (for prefix-based commands)
+function startsWithCommand(content, command) {
+  content = content.toLowerCase();
+  command = command.toLowerCase();
+  return content.startsWith(command) || (aliases[command] && aliases[command].map(alias => alias.toLowerCase()).some(alias => content.startsWith(alias)));
+}
+
+// Function to start the bot
+function startBot() {
+  client.login('MTI0NTEyNTEwMjc5NDgzODA4Ng.G5bfwE.f2uqHADVCoiUxt2Ga2yvH18_lOEf2P5HGfialU');
+}
+
+// Function to initialize the bot
+function initializeBot() {
+  startBot();
+}
+
+// Initialize the bot
+initializeBot();

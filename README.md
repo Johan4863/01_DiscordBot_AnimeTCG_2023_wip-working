@@ -64,7 +64,7 @@
     CREATE TABLE IF NOT EXISTS card_info (
         id INT AUTO_INCREMENT PRIMARY KEY,
         card_name VARCHAR(255) NOT NULL,
-        latest_print TIMESTAMP
+        latest_print INT
     );
     CREATE TABLE IF NOT EXISTS last_code_table (
         id INT AUTO_INCREMENT PRIMARY KEY,

@@ -5,7 +5,7 @@
 3. **To Check if Node is Installed Correctly Type** `npm --version`
 4. **Type Commands Below in Terminal:**
     ```
-    npm install canvas@^2.11.2 discord.js@^14.14.1 dotenv@^16.3.1 fs@^0.0.1-security jest@^29.7.0 mysql2@^3.6.3 nodemon@^3.0.1
+    npm install canvas@^2.11.2 discord.js@^14.14.1 fs@^0.0.1-security jest@^29.7.0 mysql2@^3.6.3 nodemon@^3.0.1
     ```
 
 # Tutorial for Setting up Local Database Compatible with This Project

@@ -148,10 +148,10 @@ process.on('uncaughtException', (error) => {
 // Database connection
 const connection = mysql.createPool({
   connectionLimit: 10,
-  host: "localhost",
-  user: "root",
-  password: "",
-  database: "cardbot",
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
 });
 
 const query = util.promisify(connection.query).bind(connection);
@@ -3099,7 +3099,7 @@ function startsWithCommand(content, command) {
 
 // Function to start the bot
 function startBot() {
-  client.login('MTI0NTEyNTEwMjc5NDgzODA4Ng.G5bfwE.f2uqHADVCoiUxt2Ga2yvH18_lOEf2P5HGfialU');
+  client.login(process.env.TOKEN);
 }
 
 // Function to initialize the bot

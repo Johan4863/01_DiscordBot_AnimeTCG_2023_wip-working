@@ -48,12 +48,12 @@ let currentPage = 1;
 let inventoryMessage = null;
 
 // Server and channel identifiers
-const guildId = '1203697950111436862';
-const serverChannelId = '1203700143397011536';
+const guildId = process.env.SERVER_ID;
+const serverChannelId = process.env.CHANNEL_ID;
 
 //Debuggers
-const debugUserId = '556469452003344384';
-const allowedUserId = '556469452003344384';
+const debugUserId = process.env.DEV;
+const allowedUserId = process.env.DEV;
 
 // Print and code-related variables
 let existingPrints = {};
@@ -141,8 +141,8 @@ client.on('error', (error) => {
 // Process unhandled exceptions and restart the bot
 process.on('uncaughtException', (error) => {
   console.error('Unhandled Exception:', error);
-  console.log('Restarting bot...');
   startBot(); // Restart the bot
+  console.log('Restarting bot...');
 });
 
 // Database connection
@@ -772,8 +772,7 @@ client.on('messageCreate', async (msg) => {
           inline: true,
         }))
       )
-      .setImage('https://i.imgur.com/cIYuiG2.jpeg') // Dodaj ikonę sklepu
-      .setFooter('Happy shopping!')
+      .setFooter({ text: 'Happy shopping!' })
       .setTimestamp();
   
     msg.reply({ embeds: [embed] });
@@ -825,6 +824,9 @@ client.on('messageCreate', async (msg) => {
     // Generate a random color
     const randomColor = getRandomColor();
 
+     // Save the generated color in the database
+     await saveUserColor(userId, randomColor); // Replace `saveUserColor` with the actual function to save user color to the database
+
     // Create a canvas with a colored square
     const canvas = createCanvas(100, 100);
     const ctx = canvas.getContext('2d');
@@ -837,6 +839,7 @@ client.on('messageCreate', async (msg) => {
 
     // Send the buffer as an attachment
     msg.reply({
+      content: `Your color is: ${randomColor}`,
       files: [{
         attachment: buffer,
         name: 'color.png',
@@ -1203,18 +1206,16 @@ client.on('messageCreate', async (msg) => {
     await msg.guild.members.fetch();
 
     let mostSimilarUsername = null;
+    let mostSimilarMember = null;
 
     msg.guild.members.cache.forEach(member => {
         if (!member.user.bot && member.id !== msg.author.id) {
             const username = member.user.username.toLowerCase();
-            const nickname = member.displayName ? member.displayName.toLowerCase() : null;
-            const displayName = member.nickname ? member.nickname.toLowerCase() : member.user.username.toLowerCase();
-            if (nickname && nickname.startsWith(partialUsername.toLowerCase())) {
-                mostSimilarUsername = member.displayName;
-            } else if (username.startsWith(partialUsername.toLowerCase())) {
+            const displayName = member.displayName ? member.displayName.toLowerCase() : username;
+
+            if (username.startsWith(partialUsername.toLowerCase()) || displayName.startsWith(partialUsername.toLowerCase())) {
                 mostSimilarUsername = member.user.username;
-            } else if (displayName.startsWith(partialUsername.toLowerCase())) {
-                mostSimilarUsername = member.displayName ? member.displayName : member.user.username;
+                mostSimilarMember = member;
             }
         }
     });
@@ -1223,22 +1224,11 @@ client.on('messageCreate', async (msg) => {
         return msg.reply(`No similar username found for "${partialUsername}".`);
     }
 
-    const commandAuthor = msg.author.username;
-    console.log(mostSimilarUsername)
     const tradeEmbed = new EmbedBuilder()
         .setColor('#778899')
         .setTitle('Trade Request')
-        .setTimestamp();
-
-    const user = msg.guild.members.cache.find(member => member.user.username === mostSimilarUsername);
-    const tradeTarget = msg.guild.members.cache.find(member => member.displayName === mostSimilarUsername);
-    if (tradeTarget) {
-        const tradeTargetTag = tradeTarget.toString();
-        tradeEmbed.setDescription(`${tradeTargetTag} do you want to trade with <@${msg.author.id}>?`);
-    } else {
-        const userID = user.user.id;
-        tradeEmbed.setDescription(`<@${userID}> do you want to trade with <@${msg.author.id}>?`);
-    }
+        .setTimestamp()
+        .setDescription(`${mostSimilarMember} do you want to trade with <@${msg.author.id}>?`);
 
     if (lastTradeAuthor === msg.author.username) {
         if (tradeMessage && !tradeMessage.deleted) {
@@ -1247,17 +1237,14 @@ client.on('messageCreate', async (msg) => {
         if (provideItemsMessage && !provideItemsMessage.deleted) {
             await provideItemsMessage.delete().catch(console.error);
         }
-    } 
+    }
 
     tradeMessage = await msg.channel.send({ embeds: [tradeEmbed] }).catch(console.error);
 
     await tradeMessage.react('✅');
-    const declineReaction = await tradeMessage.react('❌');
+    await tradeMessage.react('❌');
 
-    // Reaction handling
-
-    // Reaction handling for acceptance
-    const filterAccept = (reaction, user) => reaction.emoji.name === '✅' && (user.username === mostSimilarUsername || user.id === debugUserId);
+    const filterAccept = (reaction, user) => reaction.emoji.name === '✅' && (user.id === mostSimilarMember.id || user.id === debugUserId);
     const acceptCollector = tradeMessage.createReactionCollector({ filter: filterAccept, time: 60000 });
 
     acceptCollector.on('collect', async (reaction, user) => {
@@ -1270,93 +1257,45 @@ client.on('messageCreate', async (msg) => {
 
         await provideItemsMessage.react('✅');
         await provideItemsMessage.react('❌');
-        const lockReaction = await provideItemsMessage.react('🔒');
+        await provideItemsMessage.react('🔒');
 
         if (tradeMessage && !tradeMessage.deleted) {
             await tradeMessage.reactions.removeAll().catch(console.error);
         }
 
-        const filterLockButton = (reaction, user) => reaction.emoji.name === '🔒' && (user.id === mostSimilarUsername || user.id ===msg.author.id || user.id === debugUserId);
+        const filterLockButton = (reaction, user) => reaction.emoji.name === '🔒' && (user.id === mostSimilarMember.id || user.id === msg.author.id || user.id === debugUserId);
         const lockButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterLockButton, time: 60000 });
         const removingLockButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterLockButton, time: 60000, dispose: true });
 
-        removingLockButtonCollector.on('remove', async (reaction, user) => { 
-            if (user.id === debugUserId) {
-                lockClicks = lockClicks - 2;
-                console.log('removed')
-                if (lockClicks < 0) lockClicks = 0;
-            }
-            else if (user.username === mostSimilarUsername || user.usrname === msg.author.username) {
-                lockClicks = lockClicks - 1;
-                console.log('removed')
-                if (lockClicks < 0) lockClicks = 0;
-            } 
-        });
-        lockButtonCollector.on('collect', async (reaction, user) => {
-            if (user.username === mostSimilarUsername || user.id === debugUserId || user.username === msg.user.username) {
-                const currentTitle = provideItemsMessage.embeds[0].title;
-                const currentDescription = provideItemsMessage.embeds[0].description;
+        let lockClicks = 0;
 
+        removingLockButtonCollector.on('remove', async (reaction, user) => {
+            if (user.id === debugUserId) {
+                lockClicks -= 2;
+            } else if (user.id === mostSimilarMember.id || user.id === msg.author.id) {
+                lockClicks -= 1;
+            }
+            if (lockClicks < 0) lockClicks = 0;
+        });
+
+        lockButtonCollector.on('collect', async (reaction, user) => {
+            if (user.id === debugUserId) {
+                lockClicks += 2;
+            } else if (user.id === mostSimilarMember.id || user.id === msg.author.id) {
+                lockClicks += 1;
+            }
+
+            if (lockClicks > 1) {
                 const provideItemsEmbed = new EmbedBuilder()
                     .setColor('#FFA500')
-                    .setTitle(currentTitle)
-                    .setDescription(currentDescription);
+                    .setTitle(provideItemsMessage.embeds[0].title)
+                    .setDescription(provideItemsMessage.embeds[0].description);
 
-                if (user.id === debugUserId) {
-                    lockClicks = lockClicks + 2;
-                } else if (user.username === mostSimilarUsername || user.username === msg.author.username) {
-                    lockClicks = lockClicks + 1;
-                }
+                await provideItemsMessage.edit({ embeds: [provideItemsEmbed] }).catch(console.error);
 
-                if (lockClicks > 1) {
-                    provideItemsMessage = await provideItemsMessage.edit({ embeds: [provideItemsEmbed] }).catch(console.error);
-
-                    await provideItemsMessage.react('✅');
-                    await provideItemsMessage.react('❌');
-                    const lockReaction = await provideItemsMessage.react('🔒');
-                }
-
-                console.log(lockClicks);
-            }
-
-            if (provideItemsMessage) {
-                const acceptCollector1 = provideItemsMessage.createReactionCollector({ filter: filterAccept1, time: 60000 });
-
-                acceptCollector1.on('collect', async (reaction, user) => {
-                    const guild = client.guilds.cache.get(reaction.message.guild.id);
-                    let member = guild.members.cache.find(member => member.user.username === mostSimilarUsername || member.displayName === mostSimilarUsername);
-                    if (!member) {
-                        member = guild.members.cache.find(member => member.user.tag === mostSimilarUsername);
-                    }
-                    const userID = member ? member.user.id : null;
-                    try {
-                        if (provideItemsMessage && provideItemsMessage.embeds.length > 0) {
-                            const cardCodes = extractCardCodesFromEmbed(provideItemsMessage.embeds[0]);
-                            if (cardCodes && cardCodes.length > 0) {
-                                const authorId = msg.author.id;
-                                const mentionedUserId = mostSimilarUsername ? userID : null;
-                                const newUserId = authorId === user.id ? mentionedUserId : authorId;
-
-                                if (newUserId && await isUserExists(newUserId)) {
-                                    await switchOwnershipForCards(cardCodes, newUserId);
-                                    await provideItemsMessage.delete();
-                                    await msg.channel.send('The cards have been successfully transferred between users.');
-                                } else {
-                                    await msg.channel.send('Invalid user ID.');
-                                }
-                            } else {
-                                await msg.channel.send('Unable to extract the card codes from the embed.');
-                            }
-                        } else {
-                            await msg.channel.send('There is no embed in the "provide items" message.');
-                        }
-                    } catch (error) {
-                        console.error('Error processing the accept reaction:', error);
-                        await msg.channel.send('An error occurred while processing the accept reaction.');
-                    }
-                });
-            } else {
-                console.error('provideItemsMessage is null');
+                await provideItemsMessage.react('✅');
+                await provideItemsMessage.react('❌');
+                await provideItemsMessage.react('🔒');
             }
         });
 
@@ -1364,81 +1303,57 @@ client.on('messageCreate', async (msg) => {
         const acceptButtonCollector = provideItemsMessage.createReactionCollector({ filter: filterAcceptButton, time: 60000 });
 
         acceptButtonCollector.on('collect', async (reaction, user) => {
-            if (user.username === mostSimilarUsername || user.id === debugUserId) {
-                provideItemsEmbed = new EmbedBuilder();
-                const currentColor = provideItemsMessage.embeds[0].color;
-                provideItemsEmbed.setColor('#00FF00');
-                provideItemsEmbed.setDescription(provideItemsMessage.embeds[0].description);
+            if (user.id === mostSimilarMember.id || user.id === debugUserId) {
+                const provideItemsEmbed = new EmbedBuilder()
+                    .setColor('#00FF00')
+                    .setDescription(provideItemsMessage.embeds[0].description);
 
                 await provideItemsMessage.edit({ embeds: [provideItemsEmbed] }).catch(console.error);
-
-                if (tradeMessage && !tradeMessage.deleted) {
-                    await tradeMessage.reactions.removeAll().catch(console.error);
-                }
             }
         });
-    });
 
-    const filterAcceptButton = (reaction, user) => reaction.emoji.name === '✅';
-    const acceptButtonCollector = tradeMessage.createReactionCollector({ filter: filterAcceptButton, time: 60000 });
+        const filterCodeMessages = msg => isValidCardCode(msg.content.trim()) && !msg.author.bot;
+        const codeCollector = msg.channel.createMessageCollector({ filter: filterCodeMessages, time: 60000 });
 
-    acceptButtonCollector.on('collect', async (reaction, user) => {
-        if (user.username === mostSimilarUsername || user.id === debugUserId) {
-            tradeEmbed.setColor('#00FF00');
-            tradeEmbed.setDescription(`Trade with ${mostSimilarUsername} has been accepted.`);
-            await tradeMessage.edit({ embeds: [tradeEmbed] }).catch(console.error);
+        codeCollector.on('collect', async message => {
+            const cardCode = message.content.trim();
+            const userId = message.author.id;
+            const mentionedUserId = mostSimilarMember.id;
 
-            if (tradeMessage && !tradeMessage.deleted) {
-                await tradeMessage.reactions.removeAll().catch(console.error);
+            try {
+                const card = await getCardFromDatabase(cardCode, mentionedUserId ? mentionedUserId : userId);
+
+                if (card) {
+                    if (mentionedUserId === userId) {
+                        player1CardCodes.push(cardCode);
+                    } else {
+                        player2CardCodes.push(cardCode);
+                    }
+
+                    await updateProvideItemsMessage();
+                } else {
+                    await message.channel.send('The provided card code does not exist in the user inventory.');
+                }
+            } catch (error) {
+                console.error('Error fetching card from database:', error);
+                await message.channel.send('An error occurred while fetching the card from the database.');
             }
-        }
+        });
     });
 
     const filterDeclineButton = (reaction, user) => reaction.emoji.name === '❌';
     const declineButtonCollector = tradeMessage.createReactionCollector({ filter: filterDeclineButton, time: 60000 });
 
     declineButtonCollector.on('collect', async (reaction, user) => {
-        if (user.username === mostSimilarUsername || user.id === debugUserId) {
-            tradeEmbed.setColor('#FF0000');
-            tradeEmbed.setTitle('Canceled');
-            tradeEmbed.setDescription(`Trade with ${mostSimilarUsername} has been canceled.`);
+        if (user.id === mostSimilarMember.id || user.id === debugUserId) {
+            tradeEmbed.setColor('#FF0000')
+                .setTitle('Canceled')
+                .setDescription(`Trade with ${mostSimilarUsername} has been canceled.`);
             await tradeMessage.edit({ embeds: [tradeEmbed] }).catch(console.error);
 
             if (tradeMessage && !tradeMessage.deleted) {
                 await tradeMessage.reactions.removeAll().catch(console.error);
             }
-        }
-    });
-
-    const filterAccept1 = (reaction, user) => reaction.emoji.name === '✅' && (user.username === mostSimilarUsername || user.id === debugUserId);
-
-    const filterCodeMessages = (msg) => isValidCardCode(msg.content.trim()) && !msg.author.bot;
-    const codeCollector = msg.channel.createMessageCollector({ filter: filterCodeMessages, time: 60000 });
-
-    codeCollector.on('collect', async (message) => {
-        const cardCode = message.content.trim();
-        const userId = message.author.id;
-        const mentionedUserId = mostSimilarUsername ? mostSimilarUsername.id : null;
-
-        try {
-            const card = await getCardFromDatabase(cardCode, mentionedUserId ? mentionedUserId : userId);
-
-            if (card) {
-                if (mentionedUserId === userId) {
-                    player1CardCodes.push(cardCode);
-                } else {
-                    player2CardCodes.push(cardCode);
-                }
-
-                await updateProvideItemsMessage();
-            } else {
-                const errorMessage = 'The provided card code does not exist in the user inventory.';
-                await message.channel.send(errorMessage);
-            }
-        } catch (error) {
-            console.error('Error fetching card from database:', error);
-            const errorMessage = 'An error occurred while fetching the card from the database.';
-            await message.channel.send(errorMessage);
         }
     });
 
@@ -1485,8 +1400,111 @@ client.on('messageCreate', async (msg) => {
         .setColor('#0099ff');
 
     msg.channel.send({ embeds: [embed] });
-  }
+  } else if (matchesCommand(msg.content, 'mhexes') && !msg.interaction) {
+    // Get the user's color codes from the database
+    getUserColorCodes(msg.author.id)
+        .then(colorCodes => {
+            if (colorCodes && colorCodes.length > 0) {
+                // Format color codes with backticks
+                const formattedCodes = colorCodes.map(code => `\`${code}\``).join(', ');
+
+                // Create an embed to display the user's color codes
+                const embed = new EmbedBuilder()
+                    .setColor('#0099ff')
+                    .setTitle('Your Color Codes')
+                    .setDescription('Here are your color codes:')
+                    .addFields({
+                        name: 'Color Codes:',
+                        value: formattedCodes
+                    })
+                    .setTimestamp();
+
+                // Respond with the embed
+                msg.reply({ embeds: [embed] });
+            } else {
+                // Respond if the user has no color codes in the database
+                msg.reply('You have no color codes in the database.');
+            }
+        })
+        .catch(error => {
+            console.error('Error retrieving user color codes:', error);
+            msg.reply('An error occurred while retrieving your color codes.');
+        });
+  } else if (startsWithCommand(msg.content, 'mhex') && !msg.interaction) {
+    // Extract the code from the message content
+    const parts = msg.content.split(' ');
+    const code = parts[1];
+
+    // Check if the user provided a code
+    if (!code) {
+        msg.reply('Please provide a code.');
+        return;
+    }
+
+    // Check if the provided code is a valid hex color code
+    if (!/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(code)) {
+        msg.reply('Invalid hex color code. Please provide a valid code.');
+        return;
+    }
+
+    // Create a canvas with a colored square using the provided hex color code
+    const canvas = createCanvas(100, 100);
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = code; // Use the provided hex color code
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Convert canvas to buffer
+    const buffer = canvas.toBuffer('image/png');
+
+    // Send the buffer as an attachment
+    msg.reply({
+        files: [{
+            attachment: buffer,
+            name: 'color.png',
+        }],
+    });
+}
+
+
+
+
 });
+
+
+async function getUserColor(userId) {
+  return new Promise((resolve, reject) => {
+      const query = 'SELECT color FROM user_colors WHERE user_id = ?';
+      connection.query(query, [userId], function(error, results, fields) {
+          if (error) {
+              reject(error);
+              return;
+          }
+
+          if (results.length > 0) {
+              resolve(results[0].color);
+          } else {
+              resolve(null);
+          }
+      });
+  });
+}
+
+async function getUserColorCodes(userId) {
+  return new Promise((resolve, reject) => {
+      const query = 'SELECT color FROM user_colors WHERE user_id = ?';
+      connection.query(query, [userId], function(error, results, fields) {
+          if (error) {
+              reject(error);
+              return;
+          }
+
+          const colorCodes = results.map(result => result.color);
+          resolve(colorCodes);
+      });
+  });
+}
+
 
 // Interaction event
 client.on('interactionCreate', async (interaction) => {
@@ -3082,6 +3100,23 @@ function getMatchingAlias(content, command) {
   }
   return null;
 }
+
+// Function to save user color
+async function saveUserColor(userId, color) {
+  const query = `INSERT INTO user_colors (user_id, color) VALUES (?, ?)`;
+
+  connection.query(query, [userId, color], function(error, results, fields) {
+      if (error) {
+          console.error('Error saving user color:', error);
+          return;
+      }
+
+      console.log('User color saved successfully.');
+  });
+}
+
+
+
 
 // Function to check if message content matches a command or its alias
 function matchesCommand(content, command) {

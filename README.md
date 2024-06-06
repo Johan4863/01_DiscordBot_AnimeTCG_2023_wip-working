@@ -70,6 +70,11 @@
         id INT AUTO_INCREMENT PRIMARY KEY,
         last_generated_code VARCHAR(255) NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS user_colors (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    color VARCHAR(7) NOT NULL
+    );
     ```
 # How To Run Project With "NODEMON"?
 

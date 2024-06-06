@@ -1401,35 +1401,35 @@ client.on('messageCreate', async (msg) => {
 
     msg.channel.send({ embeds: [embed] });
   } else if (matchesCommand(msg.content, 'mhexes') && !msg.interaction) {
-    // Get the user's color codes from the database
-    getUserColorCodes(msg.author.id)
-        .then(colorCodes => {
-            if (colorCodes && colorCodes.length > 0) {
-                // Format color codes with backticks
-                const formattedCodes = colorCodes.map(code => `\`${code}\``).join(', ');
+        // Get the user's color codes from the database
+        getUserColorCodes(msg.author.id)
+            .then(colorCodes => {
+                if (colorCodes && colorCodes.length > 0) {
+                    // Format color codes with backticks and color names
+                    const formattedCodes = colorCodes.map(code => `\`${code}\` (${categorizeColor(code)})`).join(', ');
 
-                // Create an embed to display the user's color codes
-                const embed = new EmbedBuilder()
-                    .setColor('#0099ff')
-                    .setTitle('Your Color Codes')
-                    .setDescription('Here are your color codes:')
-                    .addFields({
-                        name: 'Color Codes:',
-                        value: formattedCodes
-                    })
-                    .setTimestamp();
+                    // Create an embed to display the user's color codes
+                    const embed = new EmbedBuilder()
+                        .setColor('#0099ff')
+                        .setTitle('Your Color Codes')
+                        .setDescription('Here are your color codes:')
+                        .addFields({
+                            name: 'Color Codes:',
+                            value: formattedCodes
+                        })
+                        .setTimestamp();
 
-                // Respond with the embed
-                msg.reply({ embeds: [embed] });
-            } else {
-                // Respond if the user has no color codes in the database
-                msg.reply('You have no color codes in the database.');
-            }
-        })
-        .catch(error => {
-            console.error('Error retrieving user color codes:', error);
-            msg.reply('An error occurred while retrieving your color codes.');
-        });
+                    // Respond with the embed
+                    msg.reply({ embeds: [embed] });
+                } else {
+                    // Respond if the user has no color codes in the database
+                    msg.reply('You have no color codes in the database.');
+                }
+            })
+            .catch(error => {
+                console.error('Error retrieving user color codes:', error);
+                msg.reply('An error occurred while retrieving your color codes.');
+            });
   } else if (startsWithCommand(msg.content, 'mhex') && !msg.interaction) {
     // Extract the code from the message content
     const parts = msg.content.split(' ');
@@ -1464,13 +1464,113 @@ client.on('messageCreate', async (msg) => {
             name: 'color.png',
         }],
     });
+  } else if (startsWithCommand(msg.content, 'muse') && !msg.interaction) {
+    const args = msg.content.trim().split(/ +/);
+    const command = args.shift().toLowerCase(); // Remove "muse" from args
+
+    if (command === 'muse') {
+        const hexCode = args[0];
+        const cardCode = args[1];
+        if (!hexCode || !cardCode) {
+            return msg.reply('Please use the command in the format: `muse hex_code card_code`');
+        }
+
+        // Check if the card exists in the database
+        pool.query('SELECT * FROM card_inventory WHERE card_code = ?', [cardCode], (error, results) => {
+            if (error) {
+                console.error('Error while checking the card in the database:', error);
+                return;
+            }
+            if (results.length === 0) {
+                return msg.reply('Could not find a card with the provided code.');
+            }
+
+            // Call the function to change the card frame color
+            changeCardFrameColor(hexCode, cardCode);
+            msg.reply(`Changed the frame color of card ${cardCode}.`);
+        });
+    }
 }
-
-
 
 
 });
 
+function changeCardFrameColor(hexCode, cardCode) {
+    // Aktualizacja koloru ramki w bazie danych
+    connection.query('UPDATE card_inventory SET frame_color = ?, default_frame = ? WHERE card_code = ?', [hexCode, 0, cardCode], (error, results) => {
+        if (error) {
+            console.error('Błąd podczas aktualizacji koloru ramki w bazie danych:', error);
+            return;
+        }
+        console.log('Zaktualizowano kolor ramki dla karty', cardCode);
+    });
+}
+
+/////////////////////
+// Function to fetch user color codes from MySQL database
+function getUserColorCodes(userId) {
+    return new Promise((resolve, reject) => {
+        pool.query('SELECT color FROM user_colors WHERE user_id = ?', [userId], (error, results) => {
+            if (error) {
+                reject(error);
+            } else {
+                const colorCodes = results.map(result => result.color);
+                resolve(colorCodes);
+            }
+        });
+    });
+}
+
+// Function to convert hex to RGB
+function hexToRgb(hex) {
+    const bigint = parseInt(hex.slice(1), 16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+
+    return { r, g, b };
+}
+
+// Function to convert RGB to HSL
+function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
+
+    if (max === min) {
+        h = s = 0; // achromatic
+    } else {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+    }
+
+    return { h: h * 360, s: s * 100, l: l * 100 };
+}
+
+// Function to categorize color based on hue
+function categorizeColor(hex) {
+    const { r, g, b } = hexToRgb(hex);
+    const { h } = rgbToHsl(r, g, b);
+
+    if (h >= 0 && h < 30) return 'Red';
+    if (h >= 30 && h < 60) return 'Orange';
+    if (h >= 60 && h < 90) return 'Yellow';
+    if (h >= 90 && h < 150) return 'Green';
+    if (h >= 150 && h < 210) return 'Cyan';
+    if (h >= 210 && h < 270) return 'Blue';
+    if (h >= 270 && h < 330) return 'Purple';
+    return 'Red'; // Covers from 330 to 360
+}
 
 async function getUserColor(userId) {
   return new Promise((resolve, reject) => {

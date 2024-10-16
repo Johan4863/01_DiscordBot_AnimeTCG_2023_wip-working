@@ -1,16 +1,21 @@
 {
   "name": "cardbot",
+  "type": "module",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "nodemon --env-file .env index.js"
+    "test": "nodemon --env-file .env index.js",
+    "dev": "nodemon --exec node --no-warnings index.js"
+
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "canvas": "^2.11.2",
+    "chalk": "^5.3.0",
+    "colorette": "^2.0.20",
     "discord.js": "^14.14.1",
     "dotenv": "^16.3.1",
     "fs": "^0.0.1-security",

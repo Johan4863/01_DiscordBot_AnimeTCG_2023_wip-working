@@ -1,26 +1,34 @@
 // Discord-related imports
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } = require('discord.js');
-const Discord = require('discord.js');
-const { Interaction } = require('discord.js');
+import { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } from 'discord.js';
+import Discord from 'discord.js';
+import pkg from 'discord.js';
+const { Interaction } = pkg;
+import chalk  from "chalk";
+
 
 // Canvas and file system related imports
-const { createCanvas, loadImage } = require('canvas');
-const fs = require('fs');
+import { createCanvas, loadImage } from 'canvas';
+import fs from 'fs';
 
 // Database related imports
-const mysql = require('mysql2');
-const util = require('util');
+import mysql from 'mysql2';
+import util from 'util';
 
 // Path-related variables
+let imageUrlList;
 const imageUrlsPath = './imageUrls.json';
 const jsonFilePath = './moderators.json';
+import imageUrls from './imageUrls.json' assert { type: 'json' };
+
 
 // Data imports
-const characters = require('./imageUrls.json');
-const moderators = require('./moderators.json');
+import characters from './imageUrls.json' assert { type: 'json' };
+import ModeratorUsers from './moderators.mjs'
 
 // dotenv for environment variables
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 
 // Player-related variables
@@ -31,6 +39,8 @@ let lastTradeAuthor = '';
 let requester;
 let tradeRequestHandled = false;
 let lastCommandAuthor;
+const userCooldowns = new Map(); // Store cooldowns for each user
+const userSessions = new Map(); // Store active sessions for each user
 
 // Trade-related variables
 let provideItemsMessage = null;
@@ -58,7 +68,7 @@ const allowedUserId = process.env.DEV;
 // Print and code-related variables
 let existingPrints = {};
 let latestPrints = {};
-let imageUrls;
+//let imageUrls;
 let lastGeneratedCode = '';
 const existingCodes = {};
 const cardCounts = {};
@@ -118,19 +128,14 @@ const client = new Client({
 
 // Ready event
 client.on('ready', async () => {
-  console.log(`Logged in as ${client.user.username}!`);
-
+  console.log(chalk.green(`Logged in as ${client.user.username}!`));
+  
   //Set activity status
   client.user.setPresence({
     activities: [{ name: `mhelp`, type: ActivityType.Listening }],
     status: 'dnd',
   });
 
-  // Load latest prints from the database
-  const loadedLatestPrints = await loadLatestPrintsFromDatabase();
-
-  // Load existing prints from the database
-  loadExistingPrintsFromDatabase();
 });
 
 // Event listener for handling errors
@@ -158,11 +163,11 @@ const query = util.promisify(connection.query).bind(connection);
 
 // Read imageUrls file and parse data
 try {
-const imageUrlsData = fs.readFileSync(imageUrlsPath, 'utf8');
-imageUrls = JSON.parse(imageUrlsData);
+  const imageUrlsData = fs.readFileSync(imageUrlsPath, 'utf8');
+  imageUrlList = JSON.parse(imageUrlsData); // Przypisz dane do nowej zmiennej
 } catch (error) {
-console.error('Error reading imageUrls file:', error.message);
-process.exit(1);
+  console.error('Error reading imageUrls file:', error.message);
+  process.exit(1);
 }
 
 // MessageCreate event
@@ -204,7 +209,7 @@ client.on('messageCreate', async (msg) => {
       ctx.drawImage(image, x, y, width, height);
     
       // Load and draw the overlay image
-      const overlayImageUrl = './Frame01.png';
+      const overlayImageUrl = './images/frames/Frame01.png';
       const overlayImage = await loadImage(overlayImageUrl);
       ctx.drawImage(overlayImage, x, y, width, height);
     
@@ -230,7 +235,7 @@ client.on('messageCreate', async (msg) => {
       );
     
       // Load baseElement from the imageUrls.json file
-      const imageUrls = JSON.parse(fs.readFileSync('imageUrls.json', 'utf8'));
+      //const imageUrls = JSON.parse(fs.readFileSync('imageUrls.json', 'utf8'));
       const baseElement = imageUrls.find(img => img.name === cardName)?.baseElement || 'defaultBaseElement';
     
       return { cardPrint, cardCode, baseElement };
@@ -524,6 +529,9 @@ client.on('messageCreate', async (msg) => {
         });
     };
 
+
+
+
     // Handle button interactions
     client.on('interactionCreate', async (interaction) => {
         if (!interaction.isButton()) return;
@@ -596,7 +604,7 @@ client.on('messageCreate', async (msg) => {
     msg.reply({ embeds: [embed] });
   } else if (startsWithCommand(msg.content, 'mview') && !msg.interaction) {
     const userId = msg.author.id;
-    const codeToView = msg.content.slice('!view'.length).trim();
+    const codeToView = msg.content.slice('mview'.length).trim(); // Updated to use 'mview'
 
     // Check if the user exists in the players table
     const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
@@ -607,7 +615,7 @@ client.on('messageCreate', async (msg) => {
             console.error('Error checking user in database:', err.message);
         } else {
             if (userResults.length === 0) {
-                // User does not exist, inform them to use the !register command
+                // User does not exist, inform them to use the mregister command
                 msg.reply('You need to register first! Use the command `mregister`.');
             } else {
                 // User exists, check if a card with the given code exists in their inventory
@@ -626,54 +634,66 @@ client.on('messageCreate', async (msg) => {
                             const imageUrl = card.card_url;
                             const print = card.card_print;
                             const name = card.card_name;
+                            const frameId = card.frame_id || 1; // Default to frame_id 1 if not set
 
                             // Load the card image
                             const cardImage = await loadImage(imageUrl);
 
-                            // Define new image size
-                            const newWidth = 1500;
-                            const newHeight = 2100;
-                            const overlayWidthIncrease = 5; // Increase the width by five pixels
-                            const overlayShiftLeft = 1; // Shift the overlay one pixel to the left
-                            const canvas = createCanvas(newWidth, newHeight);
-                            const ctx = canvas.getContext('2d');
+                            // Load the frame image based on frameId
+                            const getFrameQuery = 'SELECT frame_url FROM frames WHERE frame_id = ?';
+                            connection.query(getFrameQuery, [frameId], async (frameErr, frameResults) => {
+                                if (frameErr) {
+                                    console.error('Error fetching frame URL:', frameErr.message);
+                                    msg.reply('Error fetching frame information.');
+                                    return;
+                                }
 
-                            // Calculate new image proportions
-                            const scaleFactor = Math.min(newWidth / cardImage.width, newHeight / cardImage.height);
+                                const frameUrl = frameResults.length > 0 ? frameResults[0].frame_url : './defaultFrame.png'; // Default frame if not found
 
-                            // Calculate position to center the image
-                            const offsetX = (newWidth - cardImage.width * scaleFactor) / 2;
-                            const offsetY = (newHeight - cardImage.height * scaleFactor) / 2;
+                                // Define new image size
+                                const newWidth = 1500;
+                                const newHeight = 2100;
+                                const overlayWidthIncrease = 5; // Increase the width by five pixels
+                                const overlayShiftLeft = 1; // Shift the overlay one pixel to the left
+                                const canvas = createCanvas(newWidth, newHeight);
+                                const ctx = canvas.getContext('2d');
 
-                            // Draw the card image with the new proportions and position
-                            ctx.drawImage(cardImage, offsetX, offsetY, cardImage.width * scaleFactor, cardImage.height * scaleFactor);
+                                // Calculate new image proportions
+                                const scaleFactor = Math.min(newWidth / cardImage.width, newHeight / cardImage.height);
 
-                            // Load and draw the overlay image
-                            const overlayImageUrl = './Frame01.png'; // Replace with the path to your second overlay image
-                            const overlayImage = await loadImage(overlayImageUrl);
+                                // Calculate position to center the image
+                                const offsetX = (newWidth - cardImage.width * scaleFactor) / 2;
+                                const offsetY = (newHeight - cardImage.height * scaleFactor) / 2;
 
-                            // Scale the overlay image to the size of the card image with width increase
-                            const overlayWidth = cardImage.width + overlayWidthIncrease;
-                            const overlayHeight = cardImage.height;
-                            const overlayX = offsetX - overlayWidthIncrease / 2 - overlayShiftLeft; // Shift and center the overlay horizontally
-                            const overlayY = offsetY;
+                                // Draw the card image with the new proportions and position
+                                ctx.drawImage(cardImage, offsetX, offsetY, cardImage.width * scaleFactor, cardImage.height * scaleFactor);
 
-                            ctx.drawImage(
-                                overlayImage,
-                                overlayX,
-                                overlayY,
-                                overlayWidth * scaleFactor,
-                                overlayHeight * scaleFactor
-                            );
+                                // Load and draw the frame image
+                                const frameImage = await loadImage(frameUrl);
 
-                            ctx.font = '40px Arial';
-                            ctx.fillStyle = 'white';
-                            ctx.fillText(`"${name}" #${print} ~${codeToView})`, 20, canvas.height - 30);
+                                // Scale the frame image to the size of the card image with width increase
+                                const frameWidth = cardImage.width + overlayWidthIncrease;
+                                const frameHeight = cardImage.height;
+                                const frameX = offsetX - overlayWidthIncrease / 2 - overlayShiftLeft; // Shift and center the frame horizontally
+                                const frameY = offsetY;
 
-                            const buffer = canvas.toBuffer();
+                                ctx.drawImage(
+                                    frameImage,
+                                    frameX,
+                                    frameY,
+                                    frameWidth * scaleFactor,
+                                    frameHeight * scaleFactor
+                                );
 
-                            // Send the image to the user
-                            msg.reply({ files: [buffer] });
+                                ctx.font = '40px Arial';
+                                ctx.fillStyle = 'white';
+                                ctx.fillText(`"${name}" #${print} ~${codeToView}`, 20, canvas.height - 30);
+
+                                const buffer = canvas.toBuffer();
+
+                                // Send the image to the user
+                                msg.reply({ files: [buffer] });
+                            });
                         }
                     }
                 });
@@ -919,62 +939,47 @@ client.on('messageCreate', async (msg) => {
     } else {
       msg.reply('Invalid command format. Use !maddmoderator <discord_id> <discord_usertag>.');
     }
-  } else if (startsWithCommand(msg.content, 'msearch') && !msg.interaction) {
-    // Check if the message content contains at least one word after the command
-    //const args = msg.content.slice('msearch'.length).trim().split(' ');
+  } /*db broken*/ else if (startsWithCommand(msg.content, 'msearch') && !msg.interaction) {
     const matchedAlias = getMatchingAlias(msg.content, 'msearch');
     const args = msg.content.slice(matchedAlias.length).trim().split(' ');
+
     if (args.length < 1) {
         msg.reply('Please provide a character name.');
         return;
     }
 
-    // Get the search phrase from the message content
     const searchTerm = args.join(' ');
 
-    // Check if there is at least one character
-    if (characters.length === 0) {
-        msg.reply('No characters found.');
-        return;
-    }
+    // Check if there is at least one character in the database
+    const fetchCharactersQuery = 'SELECT * FROM user_data WHERE card_name LIKE ?';
+    const regex = `%${searchTerm}%`;
 
-    // Create a regular expression for searching character names
-    const regex = new RegExp(searchTerm, 'i');
+    connection.query(fetchCharactersQuery, [regex], async (err, results) => {
+        if (err) {
+            console.error('Error fetching characters from the database:', err.message);
+            return msg.reply('There was an error retrieving characters.');
+        }
 
-    // Filter characters whose name matches the entered phrase
-    const filteredCharacters = characters.filter(
-        (char) => char.name && regex.test(char.name.trim())
-    );
-
-    if (filteredCharacters.length === 0) {
-        msg.reply('No characters found.');
-    } else {
-        const slicedCharacters = filteredCharacters.slice(0, 10);
+        if (results.length === 0) {
+            msg.reply('No characters found.');
+            return;
+        }
 
         // If there is one matching character, send an Embed
-        if (slicedCharacters.length === 1) {
-            const character = slicedCharacters[0];
+        if (results.length === 1) {
+            const character = results[0];
 
             // Create the Embed
             const embed = new EmbedBuilder()
                 .setTitle('Selected Character')
-                .setDescription(`**Name:** ${character.name}\n**Series:** ${character.series}\n**Base Element:** ${character.baseElement}`)
-                .setImage(character.url);
-
-            // Add description if available
-            if (character.description) {
-                embed.setDescription(`**Name:** ${character.name}\n**Series:** ${character.series}\n**Base Element:** ${character.baseElement}\n\n**Description:** ${character.description}`);
-            } else {
-                embed.addFields({ name: 'Description', value: 'No description available.' });
-            }
+                .setDescription(`**Name:** ${character.card_name}\n**User Tag:** ${character.usertag}\n**Description:** ${character.description}`)
+                .setImage(character.url || 'default_image_url.png'); // Replace with actual image logic if available
 
             // Send the Embed
             msg.reply({ embeds: [embed] });
         } else {
             // If there are more than one matching characters, send a list with numbers
-            const characterList = slicedCharacters.map(
-                (char, index) => `${index + 1}. ${char.name} from ${char.series}`
-            );
+            const characterList = results.map((char, index) => `${index + 1}. ${char.card_name} (${char.usertag})`);
 
             // Send the list of characters
             msg.reply(`Multiple characters found. Please choose a number:\n${characterList.join('\n')}`);
@@ -988,20 +993,13 @@ client.on('messageCreate', async (msg) => {
 
             collector.on('collect', (response) => {
                 const choice = parseInt(response.content) - 1;
-                const selectedCharacter = slicedCharacters[choice];
+                const selectedCharacter = results[choice];
 
                 // Create the Embed
                 const embed = new EmbedBuilder()
                     .setTitle('Selected Character')
-                    .setDescription(`**Name:** ${selectedCharacter.name}\n**Series:** ${selectedCharacter.series}\n**Base Element:** ${selectedCharacter.baseElement}`)
-                    .setImage(selectedCharacter.url);
-
-                // Add description if available
-                if (selectedCharacter.description) {
-                    embed.setDescription(`**Name:** ${selectedCharacter.name}\n**Series:** ${selectedCharacter.series}\n**Base Element:** ${selectedCharacter.baseElement}\n\n**Description:** ${selectedCharacter.description}`);
-                } else {
-                    embed.addFields({ name: 'Description', value: 'No description available.' });
-                }
+                    .setDescription(`**Name:** ${selectedCharacter.card_name}\n**User Tag:** ${selectedCharacter.usertag}\n**Description:** ${selectedCharacter.description}`)
+                    .setImage(selectedCharacter.url || 'default_image_url.png'); // Replace with actual image logic if available
 
                 // Send the Embed
                 msg.reply({ embeds: [embed] });
@@ -1013,41 +1011,50 @@ client.on('messageCreate', async (msg) => {
                 }
             });
         }
-    }
-  } else if (startsWithCommand(msg.content, 'madddescription') && !msg.interaction) {
+    });
+  } /*broken*/ else if (startsWithCommand(msg.content, 'madddescription') && !msg.interaction) {
     const usertag = msg.author.tag;
     const userId = msg.author.id;
     const channel_ = msg.channel.id;
     const serverChannel_ = msg.guild.channels.cache.get(channel_);
 
-    // Check if the correct number of arguments is provided
     const args = msg.content.slice('madddescription'.length).trim().split(' ');
-
-    console.log('Debug info:');
-    console.log('Arguments:', args);
 
     if (args.length < 2) {
         msg.reply('Please provide the correct number of arguments: <card_name> <card_series>');
         return;
     }
+
     if (msg.guild && msg.guild.id !== guildId) {
         msg.reply('This command is restricted to a specific server.');
         return;
     }
+
     const cardName = args[0].toLowerCase();
     const cardSeries = args.slice(1).join(' ').toLowerCase();
-    
+
+    const now = Date.now();
+    const cooldownAmount = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+    if (userCooldowns.has(userId)) {
+        const expirationTime = userCooldowns.get(userId) + cooldownAmount;
+        if (now < expirationTime) {
+            const timeLeft = Math.ceil((expirationTime - now) / 1000);
+            return msg.reply(`You need to wait ${timeLeft} seconds before using this command again.`);
+        }
+    }
+
+    userCooldowns.set(userId, now); // Set cooldown
+
     let matchedCharacters = [];
     let names1 = null;
 
     for (let i = 0; i < characters.length; i++) {
         const characterName = characters[i].name.toLowerCase();
         const characterSeries = characters[i].series.toLowerCase();
-    
+
         if (cardName === characterName && characterSeries.includes(cardSeries)) {
             matchedCharacters.push(characters[i]);
-    
-            // Assign directly to globalData to avoid issues with names1
             globalData.cardName0 = characters[i].name.toLowerCase();
             globalData.cardSeries0 = characters[i].series.toLowerCase();
         }
@@ -1058,144 +1065,105 @@ client.on('messageCreate', async (msg) => {
         return;
     }
 
-    // Display matched characters in the confirmation message
     const matchedCharactersList = matchedCharacters
         .map((char) => `${char.name} from ${char.series}`)
         .join('\n');
 
     const confirmationEmbed = new EmbedBuilder()
-        .setTitle(`Is this the character to which you want to add a description?`)
-        .setDescription(`***${matchedCharactersList}*** \n If yes, you have 1 minute to send a description as next message. If the character does not match, type "no" and use the command again.`)
+        .setTitle('Is this the character to which you want to add a description?')
+        .setDescription(`***${matchedCharactersList}*** \n If yes, you have 1 minute to send a description as the next message. If the character does not match, type "no" and use the command again.`)
         .setColor('#3498db');
-    
+
     msg.channel.send({ embeds: [confirmationEmbed] });
-    
-    // Wait for user response
+
     const filter = (response) => response.author.id === msg.author.id;
     const collector = msg.channel.createMessageCollector({ filter: filter, time: 60000 });
-    
-    const foundCard = characters.find((card) => {
-        const isCardNameMatch = card.name.toLowerCase() === cardName.toLowerCase();
-        const isSeriesMatch = card.series && card.series.toLowerCase().includes(cardSeries);
-    
-        return isCardNameMatch && isSeriesMatch;
-    });
 
-    collector.on('collect', (response) => {
-        userResponse = response.content.trim();
+    collector.on('collect', async (response) => {
+        const userResponse = response.content.trim();
 
-        // Check if the message is sent by the bot
         if (response.author.bot) {
             return;
         }
-        
+
+        const foundCard = characters.find((card) => {
+            const isCardNameMatch = card.name.toLowerCase() === cardName.toLowerCase();
+            const isSeriesMatch = card.series && card.series.toLowerCase().includes(cardSeries);
+            return isCardNameMatch && isSeriesMatch;
+        });
+
         if (!foundCard) {
             msg.reply('The specified card does not exist.');
             return;
         }
 
-        // Check if a description for the card already exists
         const existingDescription = foundCard.description;
 
         if (existingDescription) {
-            msg.reply('Description already exists for the specified card.');
-            return;
+            collector.stop(); // Stop the collector
+            return msg.reply('Description already exists for the specified card.');
         }
 
-        // Check if the user has already added a description for this card
-        const existingRequestQuery = 'SELECT * FROM user_data WHERE user_id = ? AND card_name = ? AND channel_id = ?';
-        connection.query(existingRequestQuery, [userId, names1, channel_], (requestErr, requestResults) => {
-            if (requestErr) {
-                console.error('Error checking existing description request:', requestErr.message);
-                return;
-            }
+        if (userResponse.toLowerCase() === 'no') {
+            msg.reply('Adding description canceled.');
+            collector.stop();
+            return;
+        } else if (userResponse.length < 20) {
+            collector.stop(); // Stop the collector
+            return msg.reply('Description is too short!');
+        }
 
-            /*if (requestResults.length > 0) {
-                msg.reply('You have already requested a description for this card. Please wait for the admin to review.');
-                return;
-            }*/
-            // If the user does not want to add a description
-            if (userResponse.toLowerCase() === 'no') {
-                msg.reply('Adding description canceled.');
-                collector.stop();
-                return;
-            } else if (userResponse.length < 20) {
-                msg.reply('Description is too short!');
-                return;
-            } else if (userResponse.length >= 20) {
-                // If the user sent a description (minimum 20 characters), send it to the specified channel
-                const serverChannel = msg.guild.channels.cache.get(serverChannelId);
+        const serverChannel = msg.guild.channels.cache.get(serverChannelId);
 
-                if (serverChannel) {
-                    const descriptionEmbed = new EmbedBuilder()
-                        .setTitle('New Description Request')
-                        .addFields(
-                            { name: 'User', value: msg.author.tag, inline: true },
-                            { name: 'Character', value: foundCard.name, inline: true },
-                            { name: 'Series', value: foundCard.series, inline: true },
-                            { name: 'Description', value: userResponse }
-                        )
-                        .setTimestamp()
-                        .setColor('#2ecc71');
+        if (serverChannel) {
+            const descriptionEmbed = new EmbedBuilder()
+                .setTitle('New Description Request')
+                .addFields(
+                    { name: 'User', value: msg.author.tag, inline: true },
+                    { name: 'Character', value: foundCard.name, inline: true },
+                    { name: 'Series', value: foundCard.series, inline: true },
+                    { name: 'Description', value: userResponse }
+                )
+                .setTimestamp()
+                .setColor('#2ecc71');
 
-                    const confirm = new ButtonBuilder()
-                        .setCustomId('confirm')
-                        .setLabel('Confirm')
-                        .setStyle(ButtonStyle.Success);
+            const confirm = new ButtonBuilder()
+                .setCustomId('confirm')
+                .setLabel('Confirm')
+                .setStyle(ButtonStyle.Success);
 
-                    const cancel = new ButtonBuilder()
-                        .setCustomId('cancel')
-                        .setLabel('Cancel')
-                        .setStyle(ButtonStyle.Danger);
+            const cancel = new ButtonBuilder()
+                .setCustomId('cancel')
+                .setLabel('Cancel')
+                .setStyle(ButtonStyle.Danger);
 
-                    const row = new ActionRowBuilder()
-                        .addComponents(cancel, confirm);
+            const row = new ActionRowBuilder()
+                .addComponents(cancel, confirm);
 
-                    // Check if the user response has content
-                    if (userResponse.trim() !== '') {
-                        //descriptionEmbed.setDescription(userResponse);
-                        description_ = userResponse;
-                        serverChannel.send({
-                            embeds: [descriptionEmbed],
-                            components: [row]
-                        })
-                        .then(() => {
-                            msg.reply('Description request sent successfully! Wait for an admin to accept or decline it!');
-                        })
-                        .catch((error) => {
-                            console.error('Error sending message:', error);
-                            msg.reply(`An error occurred while adding the description: ${error.message}`);
-                        });
-                    } else {
-                        msg.reply('Description cannot be empty. Adding description canceled.');
-                    }
-                } else {
-                    msg.reply('Server channel not found. Please configure the server channel ID in the bot configuration.');
+            serverChannel.send({
+                embeds: [descriptionEmbed],
+                components: [row]
+            });
+
+            // Save the request data for processing on confirmation
+            const storeDataQuery = 'INSERT INTO user_data (user_id, channel_id, card_name, usertag, description) VALUES (?, ?, ?, ?, ?)';
+            connection.query(storeDataQuery, [userId, channel_, foundCard.name, usertag, userResponse], (storeErr) => {
+                if (storeErr) {
+                    console.error('Error storing user data in the database:', storeErr.message);
                 }
-                console.log(`desc:${description_}`)
-                // Store data in the database
-                const storeDataQuery = 'INSERT INTO user_data (user_id, channel_id, card_name, usertag, description) VALUES (?, ?, ?, ?, ?)';
-                connection.query(storeDataQuery, [userId, channel_, names1, usertag, description_], (storeErr) => {
-                    if (storeErr) {
-                        console.error('Error storing user data in the database:', storeErr.message);
-                        return;
-                    }
-                    // Add the description to the character in the characters array
-                    foundCard.description = description_;
+            });
+        } else {
+            msg.reply('Server channel not found. Please configure the server channel ID in the bot configuration.');
+        }
 
-                    // Optionally, update the 'imageUrls.json' file with the modified characters array
-                    fs.writeFileSync('imageUrls.json', JSON.stringify(characters, null, 2));
-                });
-                collector.stop();
-            }
-        });
+        collector.stop();
     });
-    
+
     collector.on('end', (collected, reason) => {
         if (reason === 'time') {
             msg.reply('Command timed out. Please try again.');
         }
-    });    
+    });
   } else if (startsWithCommand(msg.content, 'mtrade') && !msg.interaction) {
     const partialUsername = msg.content.slice('mtrade'.length).trim();
 
@@ -1490,7 +1458,40 @@ client.on('messageCreate', async (msg) => {
             msg.reply(`Changed the frame color of card ${cardCode}.`);
         });
     }
-}
+  } else if (startsWithCommand(msg.content, 'mframe') && !msg.interaction) {
+  const args = msg.content.slice('mframe'.length).trim().split(' ');
+  const cardCode = args[0];
+  const newFrameName = args.slice(1).join(' '); // Handle multi-word frame names
+
+  // Query to get the frame_id for the given frame_name
+  const getFrameIdQuery = 'SELECT frame_id FROM frames WHERE frame_name = ?';
+  connection.query(getFrameIdQuery, [newFrameName], (err, frameResults) => {
+      if (err) {
+          console.error('Error fetching frame ID:', err.message);
+          msg.reply('Error fetching frame information.');
+          return;
+      }
+
+      if (frameResults.length === 0) {
+          msg.reply('Frame not found.');
+          return;
+      }
+
+      const newFrameId = frameResults[0].frame_id;
+
+      // Update the card's frame_id in the card_inventory table
+      const updateFrameQuery = 'UPDATE card_inventory SET frame_id = ? WHERE card_code = ?';
+      connection.query(updateFrameQuery, [newFrameId, cardCode], (updateErr) => {
+          if (updateErr) {
+              console.error('Error updating frame in database:', updateErr.message);
+              msg.reply('Error updating the card frame.');
+          } else {
+              msg.reply(`Card frame updated to ${newFrameName}.`);
+          }
+      });
+  });
+  }
+
 
 
 });
@@ -1590,7 +1591,7 @@ async function getUserColor(userId) {
   });
 }
 
-async function getUserColorCodes(userId) {
+/*async function getUserColorCodes(userId) {
   return new Promise((resolve, reject) => {
       const query = 'SELECT color FROM user_colors WHERE user_id = ?';
       connection.query(query, [userId], function(error, results, fields) {
@@ -1603,11 +1604,11 @@ async function getUserColorCodes(userId) {
           resolve(colorCodes);
       });
   });
-}
+}*/
 
 
 // Interaction event
-client.on('interactionCreate', async (interaction) => {
+/*client.on('interactionCreate', async (interaction) => {
   const userId = interaction.user.id;
 
   if (interaction.customId === 'cancel') {
@@ -1683,10 +1684,101 @@ client.on('interactionCreate', async (interaction) => {
           await serverChannel1.send(replyContent);
       });
   }
+});*/
+
+client.on('interactionCreate', async (interaction) => {
+  const userId = interaction.user.id;
+
+  if (interaction.customId === 'cancel') {
+      await interaction.deferUpdate();
+      const isMod = await isModerator(userId);
+      if (!isMod) {
+          return interaction.reply({
+              content: 'You do not have permission to perform this action.',
+              ephemeral: true,
+          });
+      }
+
+      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
+
+      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
+      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
+          if (err) {
+              console.error('Error fetching user data from the database:', err.message);
+              return;
+          }
+
+          if (results.length === 0) {
+              return interaction.followUp('No data found for the specified message.');
+          }
+
+          const data = results[0];
+          const { user_id } = data;
+
+          const replyContent = `<@${user_id}> your card description has been declined by a moderator. Make sure your description follows the rules!`;
+          const serverChannelId1 = '1203803520998969344';
+          const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
+          await serverChannel1.send(replyContent);
+      });
+  } else if (interaction.customId === 'confirm') {
+      await interaction.deferUpdate();
+      const isMod = await isModerator(userId);
+      if (!isMod) {
+          return interaction.reply({
+              content: 'You do not have permission to perform this action.',
+              ephemeral: true,
+          });
+      }
+
+      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
+
+      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
+      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
+          if (err) {
+              console.error('Error fetching user data from the database:', err.message);
+              return;
+          }
+
+          if (results.length === 0) {
+              return interaction.followUp({
+                  content: 'No data found for the specified message.',
+                  ephemeral: true
+              });
+          }
+
+          const data = results[0];
+          const { user_id, card_name } = data;
+
+          const serverChannelId1 = '1203803520998969344';
+          const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
+
+          // Update the JSON file with the approved description
+          const cardIndex = characters.findIndex(card => card.name.toLowerCase() === card_name.toLowerCase());
+
+          if (cardIndex !== -1) {
+              characters[cardIndex].description = descriptionValue; // Update the description
+              fs.writeFileSync('characters.json', JSON.stringify(characters, null, 2)); // Save to JSON
+              await serverChannel1.send(`<@${user_id}> your card description has been accepted by a moderator. Congrats, you are now part of this project! Thank you!`);
+          } else {
+              interaction.reply('Character not found in the database.');
+          }
+      });
+  }
 });
 
+
+// Function to start a new session for a user
+const startSession = (userId) => {
+  userSessions.set(userId, true);
+};
+
+// Function to check if a user has an active session
+const hasActiveSession = (userId) => {
+  return userSessions.has(userId);
+};
+
 // Function to check if a user is a moderator
-function isModerator(userId) {
+/*function isModerator(userId) {
   const moderatorsFilePath = './moderators.json';
 
   // Check if the moderators.json file exists
@@ -1700,6 +1792,10 @@ function isModerator(userId) {
 
   // Check if the user is a moderator
   return moderatorsData.some((moderator) => moderator.id === userId);
+}*/
+
+function isModerator(userId) {
+  return moderators.some(mod => mod.id === userId);
 }
 
 function generateSpecialAbility(element, baseElement) {
@@ -2739,18 +2835,52 @@ function getRandomElementWithChances(elements, chances) {
 }
 
 // Function to add card information to the database
-function addCardInfoToDatabase(cardName, latestPrint) {
-  const query = 'INSERT INTO card_info (card_name, latest_print) VALUES (?, ?)';
-  const values = [cardName, latestPrint];
-
-  connection.query(query, values, (err, results) => {
+/*function addCardInfoToDatabase(cardName, latestPrint) {
+  const checkQuery = 'SELECT COUNT(*) AS count FROM card_info WHERE card_name = ?';
+  
+  connection.query(checkQuery, [cardName], (err, results) => {
     if (err) {
-      console.error('Error adding card info to database:', err.message);
+      console.error('Error checking card existence in database:', err.message);
+      return;
+    }
+
+    const cardExists = results[0].count > 0;
+
+    if (cardExists) {
+      console.log(`Card "${cardName}" already exists in the database.`);
     } else {
-      console.log('Card info added to database:', results);
+      const insertQuery = 'INSERT INTO card_info (card_name, latest_print) VALUES (?, ?)';
+      const values = [cardName, latestPrint];
+
+      connection.query(insertQuery, values, (err, results) => {
+        if (err) {
+          console.error('Error adding card info to database:', err.message);
+        } else {
+          console.log('Card info added to database:', results);
+        }
+      });
     }
   });
 }
+*/
+
+function addCardInfoToDatabase(cardName, latestPrint) {
+  const insertQuery = `
+    INSERT INTO card_info (card_name, latest_print)
+    VALUES (?, ?)
+    ON DUPLICATE KEY UPDATE latest_print = VALUES(latest_print);
+  `;
+
+  connection.query(insertQuery, [cardName, latestPrint], (err, results) => {
+    if (err) {
+      //console.error('Error adding card info to database:', err.message);
+      console.log('All cards prints updated!')
+    } else {
+      console.log('Card info added or updated in database:', results);
+    }
+  });
+}
+
 
 // Function to update user's item amount in the database
 async function updateUserItemsAmount(userId, itemType, newAmount) {
@@ -2898,7 +3028,7 @@ function getRandomNumberInRange(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
-// Function to add card to the database
+// Function to add a card to the database with default frame ID
 function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement) {
   // Find the image object with the matching name in imageUrls
   const imageObject = imageUrls.find((image) => image.name === cardName);
@@ -2919,14 +3049,18 @@ function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, serie
   const energy = getRandomNumberInRange(10, 50);
   const luck = getRandomNumberInRange(1, 10);
 
-  const queryInventory = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())';
-  const valuesInventory = [userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement];
+  // Default frame ID (frame number 1)
+  const defaultFrameId = 1;
+
+  // Insert into card_inventory with default frame ID
+  const queryInventory = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, frame_id, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+  const valuesInventory = [userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement, defaultFrameId];
 
   const queryStats = 'INSERT INTO card_stats (card_code, strength, defense, agility, wisdom, energy, luck) VALUES (?, ?, ?, ?, ?, ?, ?)';
   const valuesStats = [cardCode, strength, defense, agility, wisdom, energy, luck];
 
   // Insert into card_inventory
-  connection.query(queryInventory, valuesInventory, async (err, results) => {
+  connection.query(queryInventory, valuesInventory, (err, results) => {
     if (err) {
       console.error('Error adding card to database:', err.message);
     } else {
@@ -3146,10 +3280,11 @@ const loadExistingPrintsFromDatabase = async () => {
     //console.log('Existing prints loaded from the latest prints:', existingPrints);
 
     // Load counters from the database
-    const loadCountsQuery = 'SELECT card_name, latest_print FROM card_info';
+    const loadCountsQuery = 'SELECT card_name, latest_print AS latest FROM card_info';
     const counts = await query(loadCountsQuery);
     counts.forEach((row) => {
-      cardCounts[row.card_name] = row.latest_print;
+      cardCounts[row.card_name] = row.latest;
+      //console.log(row.card_name)
     });
 
     //console.log('Card counts loaded from the database:', cardCounts);
@@ -3215,7 +3350,72 @@ async function saveUserColor(userId, color) {
   });
 }
 
+//30.082024>>>> [functions]
+// Function to process JSON data, check for existing cards, and insert new ones
+function processAndAddCardData(filePath) {
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) {
+      console.error('Error reading JSON file:', err.message);
+      return;
+    }
 
+    const cards = JSON.parse(data);
+
+    cards.forEach(card => {
+      const { name, baseElement = null, description = null } = card;
+      const latestPrint = 0; // Assuming latestPrint is always 0 as per your example
+
+      // Check if the card already exists
+      const checkQuery = 'SELECT COUNT(*) AS count FROM card_info WHERE card_name = ? AND latest_print = ?';
+      connection.query(checkQuery, [name, latestPrint], (err, results) => {
+        if (err) {
+          console.error('Error checking if card exists:', err.message);
+          return;
+        }
+
+        if (results[0].count === 0) {
+          // Card does not exist, so insert it
+          const insertQuery = 'INSERT INTO card_info (card_name, latest_print) VALUES (?, ?)';
+          const values = [name, latestPrint];
+
+          connection.query(insertQuery, values, (err, results) => {
+            if (err) {
+              //console.error('Error adding card info to database:', err.message);
+            } else {
+              console.log('Card info added to database:', results);
+            }
+          });
+        } else {
+          console.log('Card already exists in database:', name);
+        }
+      });
+    });
+  });
+}
+
+// Function to add or update frame in the database
+const addOrUpdateFrame = async (frameUrl, frameNumber) => {
+  try {
+      // Check if the frame already exists
+      const checkFrameQuery = 'SELECT frame_id FROM frames WHERE frame_number = ?';
+      const [rows] = await query(checkFrameQuery, [frameNumber]);
+
+      if (rows.length > 0) {
+          // Frame already exists, return its ID
+          return rows[0].frame_id;
+      } else {
+          // Insert new frame
+          const insertFrameQuery = 'INSERT INTO frames (frame_url, frame_number) VALUES (?, ?)';
+          const [result] = await query(insertFrameQuery, [frameUrl, frameNumber]);
+
+          // Return ID of the newly inserted frame
+          return result.insertId;
+      }
+  } catch (error) {
+      console.error('Error adding or updating frame:', error.message);
+      throw error;
+  }
+};
 
 
 // Function to check if message content matches a command or its alias
@@ -3234,13 +3434,24 @@ function startsWithCommand(content, command) {
 
 // Function to start the bot
 function startBot() {
-  client.login(process.env.TOKEN);
+  client.login(process.env.TOKEN).catch(error => {
+    console.error('Failed to login:', error);
+  });
 }
 
 // Function to initialize the bot
-function initializeBot() {
+async function initializeBot() {
+
+  // Load latest prints from the database
+  await loadLatestPrintsFromDatabase();
+
+  // Load existing prints from the database
+  await loadExistingPrintsFromDatabase();
+
   startBot();
 }
+
+processAndAddCardData('./imageUrls.json');
 
 // Initialize the bot
 initializeBot();

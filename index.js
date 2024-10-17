@@ -1,10 +1,5 @@
 // Discord-related imports
 import { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } from 'discord.js';
-import Discord from 'discord.js';
-import pkg from 'discord.js';
-const { Interaction } = pkg;
-import chalk  from "chalk";
-
 
 // Canvas and file system related imports
 import { createCanvas, loadImage } from 'canvas';
@@ -13,6 +8,10 @@ import fs from 'fs';
 // Database related imports
 import mysql from 'mysql2';
 import util from 'util';
+
+//  Other Imports
+import chalk  from "chalk";
+import path from 'path';
 
 // Path-related variables
 let imageUrlList;
@@ -24,12 +23,21 @@ import imageUrls from './imageUrls.json' assert { type: 'json' };
 // Data imports
 import characters from './imageUrls.json' assert { type: 'json' };
 import ModeratorUsers from './moderators.mjs'
+const readFileAsync = util.promisify(fs.readFile);
 
 // dotenv for environment variables
 import dotenv from 'dotenv';
 dotenv.config();
 
+const charactersPath = path.join(process.cwd(), 'characters.json');
+let charactersToJSON = [];
 
+try {
+  const data = await fs.promises.readFile(charactersPath, 'utf8');
+  charactersToJSON = JSON.parse(data);
+} catch (error) {
+  console.error('Error reading characters file:', error.message);
+}
 
 // Player-related variables
 let player1CardCodes = [];
@@ -174,16 +182,6 @@ try {
 client.on('messageCreate', async (msg) => {
   const command = msg.content.toLowerCase(); // Convert command to lowercase for case-insensitivity
 
-
-
-  /*// Check if the received command is an alias, and replace it with the actual command
-  for (const [actualCommand, aliasList] of Object.entries(aliases)) {
-    if (aliasList.includes(command)) {
-      msg.content = actualCommand;
-      break;
-    }
-  }*/
-
   if (msg.content === 'ping') {
     msg.channel.send('pong');
   } else if (matchesCommand(msg.content, 'mlalo') && !msg.interaction) {
@@ -267,19 +265,10 @@ client.on('messageCreate', async (msg) => {
     
 
       const element = getRandomElementWithChances(elements, [9.5,9.5,9.5,9.5,9.5,9.5,5,9.5,9.5,9.5,9.5]); // Added
-      //console.log('Element before getEmojiForElement:', element);
-      //console.log('getEmojiForElement(element):', getEmojiForElement(element));
+      
       cardsData.push({ ...cardData, element });
-      //console.log('Element before getEmojiForElement:', element); // Added
-      //console.log('getEmojiForElement(element):', getEmojiForElement(element)); // Added
 
-      //console.log('Latest prints before update:', latestPrints);
-       // Update the latest print for this card in the database
-       //if(checkPrintExists(selectedImages[i].name==false)){
-       //addCardInfoToDatabase(selectedImages[i].name,cardData.cardPrint)
-       //}else{
        updateLatestPrintInDatabase(selectedImages[i].name, cardData.cardPrint);
-       //}
     }
 
     const buffer = canvas.toBuffer();
@@ -939,47 +928,62 @@ client.on('messageCreate', async (msg) => {
     } else {
       msg.reply('Invalid command format. Use !maddmoderator <discord_id> <discord_usertag>.');
     }
-  } /*db broken*/ else if (startsWithCommand(msg.content, 'msearch') && !msg.interaction) {
+  } else if (startsWithCommand(msg.content, 'msearch') && !msg.interaction) {
+    // Check if the message content contains at least one word after the command
+    //const args = msg.content.slice('msearch'.length).trim().split(' ');
     const matchedAlias = getMatchingAlias(msg.content, 'msearch');
     const args = msg.content.slice(matchedAlias.length).trim().split(' ');
-
     if (args.length < 1) {
         msg.reply('Please provide a character name.');
         return;
     }
 
+    // Get the search phrase from the message content
     const searchTerm = args.join(' ');
 
-    // Check if there is at least one character in the database
-    const fetchCharactersQuery = 'SELECT * FROM user_data WHERE card_name LIKE ?';
-    const regex = `%${searchTerm}%`;
+    // Check if there is at least one character
+    if (characters.length === 0) {
+        msg.reply('No characters found.');
+        return;
+    }
 
-    connection.query(fetchCharactersQuery, [regex], async (err, results) => {
-        if (err) {
-            console.error('Error fetching characters from the database:', err.message);
-            return msg.reply('There was an error retrieving characters.');
-        }
+    // Create a regular expression for searching character names
+    const regex = new RegExp(searchTerm, 'i');
 
-        if (results.length === 0) {
-            msg.reply('No characters found.');
-            return;
-        }
+    // Filter characters whose name matches the entered phrase
+    const filteredCharacters = characters.filter(
+        (char) => char.name && regex.test(char.name.trim())
+    );
+
+    if (filteredCharacters.length === 0) {
+        msg.reply('No characters found.');
+    } else {
+        const slicedCharacters = filteredCharacters.slice(0, 10);
 
         // If there is one matching character, send an Embed
-        if (results.length === 1) {
-            const character = results[0];
+        if (slicedCharacters.length === 1) {
+            const character = slicedCharacters[0];
 
             // Create the Embed
             const embed = new EmbedBuilder()
                 .setTitle('Selected Character')
-                .setDescription(`**Name:** ${character.card_name}\n**User Tag:** ${character.usertag}\n**Description:** ${character.description}`)
-                .setImage(character.url || 'default_image_url.png'); // Replace with actual image logic if available
+                .setDescription(`**Name:** ${character.name}\n**Series:** ${character.series}\n**Base Element:** ${character.baseElement}`)
+                .setImage(character.url);
+
+            // Add description if available
+            if (character.description) {
+                embed.setDescription(`**Name:** ${character.name}\n**Series:** ${character.series}\n**Base Element:** ${character.baseElement}\n\n**Description:** ${character.description}`);
+            } else {
+                embed.addFields({ name: 'Description', value: 'No description available.' });
+            }
 
             // Send the Embed
             msg.reply({ embeds: [embed] });
         } else {
             // If there are more than one matching characters, send a list with numbers
-            const characterList = results.map((char, index) => `${index + 1}. ${char.card_name} (${char.usertag})`);
+            const characterList = slicedCharacters.map(
+                (char, index) => `${index + 1}. ${char.name} from ${char.series}`
+            );
 
             // Send the list of characters
             msg.reply(`Multiple characters found. Please choose a number:\n${characterList.join('\n')}`);
@@ -993,13 +997,20 @@ client.on('messageCreate', async (msg) => {
 
             collector.on('collect', (response) => {
                 const choice = parseInt(response.content) - 1;
-                const selectedCharacter = results[choice];
+                const selectedCharacter = slicedCharacters[choice];
 
                 // Create the Embed
                 const embed = new EmbedBuilder()
                     .setTitle('Selected Character')
-                    .setDescription(`**Name:** ${selectedCharacter.card_name}\n**User Tag:** ${selectedCharacter.usertag}\n**Description:** ${selectedCharacter.description}`)
-                    .setImage(selectedCharacter.url || 'default_image_url.png'); // Replace with actual image logic if available
+                    .setDescription(`**Name:** ${selectedCharacter.name}\n**Series:** ${selectedCharacter.series}\n**Base Element:** ${selectedCharacter.baseElement}`)
+                    .setImage(selectedCharacter.url);
+
+                // Add description if available
+                if (selectedCharacter.description) {
+                    embed.setDescription(`**Name:** ${selectedCharacter.name}\n**Series:** ${selectedCharacter.series}\n**Base Element:** ${selectedCharacter.baseElement}\n\n**Description:** ${selectedCharacter.description}`);
+                } else {
+                    embed.addFields({ name: 'Description', value: 'No description available.' });
+                }
 
                 // Send the Embed
                 msg.reply({ embeds: [embed] });
@@ -1011,12 +1022,11 @@ client.on('messageCreate', async (msg) => {
                 }
             });
         }
-    });
+    }
   } /*broken*/ else if (startsWithCommand(msg.content, 'madddescription') && !msg.interaction) {
     const usertag = msg.author.tag;
     const userId = msg.author.id;
     const channel_ = msg.channel.id;
-    const serverChannel_ = msg.guild.channels.cache.get(channel_);
 
     const args = msg.content.slice('madddescription'.length).trim().split(' ');
 
@@ -1111,6 +1121,16 @@ client.on('messageCreate', async (msg) => {
         } else if (userResponse.length < 20) {
             collector.stop(); // Stop the collector
             return msg.reply('Description is too short!');
+        }
+
+        // Sprawdź, czy rekord o tej samej nazwie już istnieje
+        const checkExistingQuery = 'SELECT * FROM user_data WHERE card_name = ? AND user_id = ?';
+        const [rows] = await connection.query(checkExistingQuery, [foundCard.name, userId]);
+
+        if (rows.length > 0) {
+            msg.reply('A record for this character already exists for you.');
+            collector.stop();
+            return;
         }
 
         const serverChannel = msg.guild.channels.cache.get(serverChannelId);
@@ -1507,7 +1527,6 @@ function changeCardFrameColor(hexCode, cardCode) {
     });
 }
 
-/////////////////////
 // Function to fetch user color codes from MySQL database
 function getUserColorCodes(userId) {
     return new Promise((resolve, reject) => {
@@ -2834,36 +2853,6 @@ function getRandomElementWithChances(elements, chances) {
   return elements[0];
 }
 
-// Function to add card information to the database
-/*function addCardInfoToDatabase(cardName, latestPrint) {
-  const checkQuery = 'SELECT COUNT(*) AS count FROM card_info WHERE card_name = ?';
-  
-  connection.query(checkQuery, [cardName], (err, results) => {
-    if (err) {
-      console.error('Error checking card existence in database:', err.message);
-      return;
-    }
-
-    const cardExists = results[0].count > 0;
-
-    if (cardExists) {
-      console.log(`Card "${cardName}" already exists in the database.`);
-    } else {
-      const insertQuery = 'INSERT INTO card_info (card_name, latest_print) VALUES (?, ?)';
-      const values = [cardName, latestPrint];
-
-      connection.query(insertQuery, values, (err, results) => {
-        if (err) {
-          console.error('Error adding card info to database:', err.message);
-        } else {
-          console.log('Card info added to database:', results);
-        }
-      });
-    }
-  });
-}
-*/
-
 function addCardInfoToDatabase(cardName, latestPrint) {
   const insertQuery = `
     INSERT INTO card_info (card_name, latest_print)
@@ -3432,6 +3421,28 @@ function startsWithCommand(content, command) {
   return content.startsWith(command) || (aliases[command] && aliases[command].map(alias => alias.toLowerCase()).some(alias => content.startsWith(alias)));
 }
 
+
+const loadAndInsertCardData = async (filePath) => {
+  try {
+    
+    const data = await readFileAsync(filePath, 'utf-8');
+    const jsonData = JSON.parse(data);
+
+    
+    // Przygotowanie zapytania do dodania danych
+    const insertQuery = 'INSERT INTO user_data (card_name, description) VALUES (?, ?)';
+
+    for (const item of jsonData) {
+      if (item.name && item.description) {
+        await connection.execute(insertQuery, [item.name, item.description]);
+      }
+    }
+  } catch (error) {
+    console.error('Error with user_data db:', error.message);
+  }
+};
+
+
 // Function to start the bot
 function startBot() {
   client.login(process.env.TOKEN).catch(error => {
@@ -3441,6 +3452,7 @@ function startBot() {
 
 // Function to initialize the bot
 async function initializeBot() {
+  loadAndInsertCardData(imageUrlsPath)
 
   // Load latest prints from the database
   await loadLatestPrintsFromDatabase();
@@ -3452,6 +3464,7 @@ async function initializeBot() {
 }
 
 processAndAddCardData('./imageUrls.json');
+
 
 // Initialize the bot
 initializeBot();

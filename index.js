@@ -18,6 +18,7 @@ let imageUrlList;
 const imageUrlsPath = './imageUrls.json';
 const jsonFilePath = './moderators.json';
 import imageUrls from './imageUrls.json' assert { type: 'json' };
+import moderators from './moderators.mjs' ;
 
 
 // Data imports
@@ -49,6 +50,7 @@ let tradeRequestHandled = false;
 let lastCommandAuthor;
 const userCooldowns = new Map(); // Store cooldowns for each user
 const userSessions = new Map(); // Store active sessions for each user
+const pressed = false;
 
 // Trade-related variables
 let provideItemsMessage = null;
@@ -116,7 +118,7 @@ const shopItems = {
     'mcardinfo': ['mci', 'mcard', 'mcardinfo'],
     'maddmoderator': ['maddmod', 'maddmoderator', 'maddmod'],
     'msearch': ['ms', 'msearch', 'mlook'],
-    'madddescription': ['madddesc', 'madddescription', 'madddesc'],
+    'madddescription': ['madddesc', 'madddescription', 'madddesc', 'madd'],
     'mtrade': ['mt', 'mtrade'],
     'mdamage': ['mdmg', 'mdamage'],
   };
@@ -153,7 +155,7 @@ client.on('error', (error) => {
 
 // Process unhandled exceptions and restart the bot
 process.on('uncaughtException', (error) => {
-  console.error('Unhandled Exception:', error);
+  //console.error('Unhandled Exception:', error);
   startBot(); // Restart the bot
   console.log('Restarting bot...');
 });
@@ -1044,7 +1046,7 @@ client.on('messageCreate', async (msg) => {
     const cardSeries = args.slice(1).join(' ').toLowerCase();
 
     const now = Date.now();
-    const cooldownAmount = 30 * 60 * 1000; // 30 minutes in milliseconds
+    const cooldownAmount = 1800000; // 30 minutes in milliseconds
 
     if (userCooldowns.has(userId)) {
         const expirationTime = userCooldowns.get(userId) + cooldownAmount;
@@ -1057,8 +1059,6 @@ client.on('messageCreate', async (msg) => {
     userCooldowns.set(userId, now); // Set cooldown
 
     let matchedCharacters = [];
-    let names1 = null;
-
     for (let i = 0; i < characters.length; i++) {
         const characterName = characters[i].name.toLowerCase();
         const characterSeries = characters[i].series.toLowerCase();
@@ -1121,62 +1121,46 @@ client.on('messageCreate', async (msg) => {
         } else if (userResponse.length < 20) {
             collector.stop(); // Stop the collector
             return msg.reply('Description is too short!');
-        }
-
-        // Sprawdź, czy rekord o tej samej nazwie już istnieje
-        const checkExistingQuery = 'SELECT * FROM user_data WHERE card_name = ? AND user_id = ?';
-        const [rows] = await connection.query(checkExistingQuery, [foundCard.name, userId]);
-
-        if (rows.length > 0) {
-            msg.reply('A record for this character already exists for you.');
-            collector.stop();
-            return;
-        }
-
-        const serverChannel = msg.guild.channels.cache.get(serverChannelId);
-
-        if (serverChannel) {
-            const descriptionEmbed = new EmbedBuilder()
-                .setTitle('New Description Request')
-                .addFields(
-                    { name: 'User', value: msg.author.tag, inline: true },
-                    { name: 'Character', value: foundCard.name, inline: true },
-                    { name: 'Series', value: foundCard.series, inline: true },
-                    { name: 'Description', value: userResponse }
-                )
-                .setTimestamp()
-                .setColor('#2ecc71');
-
-            const confirm = new ButtonBuilder()
-                .setCustomId('confirm')
-                .setLabel('Confirm')
-                .setStyle(ButtonStyle.Success);
-
-            const cancel = new ButtonBuilder()
-                .setCustomId('cancel')
-                .setLabel('Cancel')
-                .setStyle(ButtonStyle.Danger);
-
-            const row = new ActionRowBuilder()
-                .addComponents(cancel, confirm);
-
-            serverChannel.send({
-                embeds: [descriptionEmbed],
-                components: [row]
-            });
-
-            // Save the request data for processing on confirmation
-            const storeDataQuery = 'INSERT INTO user_data (user_id, channel_id, card_name, usertag, description) VALUES (?, ?, ?, ?, ?)';
-            connection.query(storeDataQuery, [userId, channel_, foundCard.name, usertag, userResponse], (storeErr) => {
-                if (storeErr) {
-                    console.error('Error storing user data in the database:', storeErr.message);
-                }
-            });
         } else {
-            msg.reply('Server channel not found. Please configure the server channel ID in the bot configuration.');
-        }
+            // Wysyłanie wiadomości do kanału moderatorów
+            const moderatorChannelId = '1203700143397011536'; // zamień na właściwy kanał
+            const moderatorChannel = msg.guild.channels.cache.get(moderatorChannelId);
 
-        collector.stop();
+            if (moderatorChannel) {
+                const descriptionEmbed = new EmbedBuilder()
+                    .setTitle('New Card Description Request')
+                    .addFields(
+                        { name: 'Card Name', value: cardName },
+                        { name: 'Card Series', value: cardSeries },
+                        { name: 'Description', value: userResponse },
+                        { name: 'Submitted by', value: `<@${userId}> (${usertag})` }
+                    )
+                    .setColor('#f1c40f');
+
+                const buttons = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('confirm')
+                            .setLabel('Accept')
+                            .setStyle(ButtonStyle.Success),
+                        new ButtonBuilder()
+                            .setCustomId('cancel')
+                            .setLabel('Decline')
+                            .setStyle(ButtonStyle.Danger)
+                    );
+
+                moderatorChannel.send({
+                    embeds: [descriptionEmbed],
+                    components: [buttons]
+                });
+
+                msg.reply('Description sent and waiting for moderator approval!'); // Notify user
+            } else {
+                msg.reply('Could not find the moderator channel.');
+            }
+
+            collector.stop(); // Stop the collector after sending the message
+        }
     });
 
     collector.on('end', (collected, reason) => {
@@ -1184,7 +1168,8 @@ client.on('messageCreate', async (msg) => {
             msg.reply('Command timed out. Please try again.');
         }
     });
-  } else if (startsWithCommand(msg.content, 'mtrade') && !msg.interaction) {
+} 
+else if (startsWithCommand(msg.content, 'mtrade') && !msg.interaction) {
     const partialUsername = msg.content.slice('mtrade'.length).trim();
 
     if (!partialUsername) {
@@ -1705,7 +1690,7 @@ async function getUserColor(userId) {
   }
 });*/
 
-client.on('interactionCreate', async (interaction) => {
+/*client.on('interactionCreate', async (interaction) => {
   const userId = interaction.user.id;
 
   if (interaction.customId === 'cancel') {
@@ -1718,9 +1703,17 @@ client.on('interactionCreate', async (interaction) => {
           });
       }
 
-      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
+      const descriptionField = interaction.message.embeds[0].fields.find(field => field.name === 'Description');
+      const userField = interaction.message.embeds[0].fields.find(field => field.name === 'Submitted by'); // Poprawione na 'Submitted by'
 
+      if (!descriptionField || !userField) {
+          return interaction.followUp('Error: Description or User field not found in the embed.');
+      }
+
+      const descriptionValue = descriptionField.value;
+      const userIdFromEmbed = userField.value.match(/\d+/)[0]; // Extract user ID
       const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
+      
       connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
           if (err) {
               console.error('Error fetching user data from the database:', err.message);
@@ -1740,7 +1733,65 @@ client.on('interactionCreate', async (interaction) => {
           await serverChannel1.send(replyContent);
       });
   } else if (interaction.customId === 'confirm') {
+    await interaction.deferUpdate();
+    const isMod = await isModerator(userId);
+    if (!isMod) {
+        return interaction.reply({
+            content: 'You do not have permission to perform this action.',
+            ephemeral: true,
+        });
+    }
+
+    const cardNameField = interaction.message.embeds[0].fields.find(field => field.name === 'Card Name'); // Poprawione na 'Card Name'
+
+    if (!cardNameField) {
+        return interaction.followUp('Error: Card Name field not found in the embed.');
+    }
+
+    const cardName = cardNameField.value;
+    const userIdFromEmbed = interaction.message.embeds[0].fields.find(field => field.name === 'Submitted by').value.match(/\d+/)[0]; // Extract user ID
+    const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
+
+    const serverChannelId1 = '1203803520998969344';
+    const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
+
+    // Prepare the SQL query to fetch card information by name
+    const fetchDataQuery = 'SELECT * FROM card_info WHERE card_name REGEXP ?';
+    const regexPattern = `^${cardName}$`; // Regex to match the name exactly, case-insensitively
+
+    connection.query(fetchDataQuery, [regexPattern], async (err, results) => {
+        if (err) {
+            console.error('Error fetching card info:', err.message);
+            return interaction.followUp('An error occurred while fetching card information.');
+        }
+
+        if (results.length === 0) {
+            return interaction.followUp('No matching card found to update.');
+        }
+
+        // Assuming results[0] contains the relevant card data
+        const cardData = results[0];
+
+        // Insert the card name and description into card_data
+        const insertCardDataQuery = 'INSERT INTO card_data (user_id, channel_id, card_name, usertag, description) VALUES (?, ?, ?, ?, ?)';
+        await connection.execute(insertCardDataQuery, [userIdFromEmbed, channel_.id, cardData.card_name, `<@${userIdFromEmbed}>`, descriptionValue]);
+
+        const replyContent = `<@${userId}> your card description has been approved by a moderator.`;
+        await serverChannel1.send(replyContent);
+        return interaction.followUp('The card description has been approved and updated.');
+    });
+}
+
+
+
+});*/
+client.on('interactionCreate', async (interaction) => {
+  const userId = interaction.user.id;
+
+  if (interaction.customId === 'cancel') {
+      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
       await interaction.deferUpdate();
+
       const isMod = await isModerator(userId);
       if (!isMod) {
           return interaction.reply({
@@ -1749,7 +1800,37 @@ client.on('interactionCreate', async (interaction) => {
           });
       }
 
+      const serverChannelId1 = '1203803520998969344';
+      const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
+
+      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
+      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
+          if (err) {
+              console.error('Error fetching user data from the database:', err.message);
+              return;
+          }
+
+          if (results.length === 0) {
+              return interaction.followUp('No data found for the specified message.');
+          }
+
+          const data = results[0];
+          const { usertag, card_name, user_id } = data;
+
+          const replyContent = `<@${user_id}> your card description has been declined by a moderator. Make sure your description follows the rules! If the description is inaccurate, contains offensive language, or is too long, it will be declined. Thank you and good luck next time!`;
+          return await serverChannel1.send(replyContent);
+      });
+  } else if (interaction.customId === 'confirm') {
       const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
+      await interaction.deferUpdate();
+
+      const isMod = await isModerator(userId);
+      if (!isMod) {
+          return interaction.reply({
+              content: 'You do not have permission to perform this action.',
+              ephemeral: true,
+          });
+      }
 
       const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
       connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
@@ -1766,21 +1847,18 @@ client.on('interactionCreate', async (interaction) => {
           }
 
           const data = results[0];
-          const { user_id, card_name } = data;
+          const { usertag, card_name, user_id, series } = data;
+
+          const imageUrlsPath = 'imageUrls.json';
+          let imageUrlsData = JSON.parse(fs.readFileSync(imageUrlsPath, 'utf8'));
+
+          const compareIgnoreCase = (str1, str2) => str1.localeCompare(str2, undefined, { sensitivity: 'base' });
 
           const serverChannelId1 = '1203803520998969344';
           const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
 
-          // Update the JSON file with the approved description
-          const cardIndex = characters.findIndex(card => card.name.toLowerCase() === card_name.toLowerCase());
-
-          if (cardIndex !== -1) {
-              characters[cardIndex].description = descriptionValue; // Update the description
-              fs.writeFileSync('characters.json', JSON.stringify(characters, null, 2)); // Save to JSON
-              await serverChannel1.send(`<@${user_id}> your card description has been accepted by a moderator. Congrats, you are now part of this project! Thank you!`);
-          } else {
-              interaction.reply('Character not found in the database.');
-          }
+          const replyContent = `<@${user_id}> your card description has been accepted by a moderator. Congrats, you are now part of this project! Thank you!`;
+          await serverChannel1.send(replyContent);
       });
   }
 });
@@ -1812,6 +1890,7 @@ const hasActiveSession = (userId) => {
   // Check if the user is a moderator
   return moderatorsData.some((moderator) => moderator.id === userId);
 }*/
+
 
 function isModerator(userId) {
   return moderators.some(mod => mod.id === userId);

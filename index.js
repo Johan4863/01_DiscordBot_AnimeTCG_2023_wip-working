@@ -1,44 +1,28 @@
 // Discord-related imports
-import { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } from 'discord.js';
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } = require('discord.js');
+const Discord = require('discord.js');
+const { Interaction } = require('discord.js');
 
 // Canvas and file system related imports
-import { createCanvas, loadImage } from 'canvas';
-import fs from 'fs';
+const { createCanvas, loadImage } = require('canvas');
+const fs = require('fs');
 
 // Database related imports
-import mysql from 'mysql2';
-import util from 'util';
-
-//  Other Imports
-import chalk  from "chalk";
-import path from 'path';
-
-// Path-related variables
-let imageUrlList;
-const imageUrlsPath = './imageUrls.json';
-const jsonFilePath = './moderators.json';
-import imageUrls from './imageUrls.json' assert { type: 'json' };
-import moderators from './moderators.mjs' ;
-
-
-// Data imports
-import characters from './imageUrls.json' assert { type: 'json' };
-import ModeratorUsers from './moderators.mjs'
+const mysql = require('mysql2');
+const util = require('util');
 const readFileAsync = util.promisify(fs.readFile);
 
+// Path-related variables
+const imageUrlsPath = './imageUrls.json';
+const jsonFilePath = './moderators.json';
+
+// Data imports
+const characters = require('./imageUrls.json');
+const moderators = require('./moderators.json');
+
 // dotenv for environment variables
-import dotenv from 'dotenv';
-dotenv.config();
+require('dotenv').config();
 
-const charactersPath = path.join(process.cwd(), 'characters.json');
-let charactersToJSON = [];
-
-try {
-  const data = await fs.promises.readFile(charactersPath, 'utf8');
-  charactersToJSON = JSON.parse(data);
-} catch (error) {
-  console.error('Error reading characters file:', error.message);
-}
 
 // Player-related variables
 let player1CardCodes = [];
@@ -48,9 +32,6 @@ let lastTradeAuthor = '';
 let requester;
 let tradeRequestHandled = false;
 let lastCommandAuthor;
-const userCooldowns = new Map(); // Store cooldowns for each user
-const userSessions = new Map(); // Store active sessions for each user
-const pressed = false;
 
 // Trade-related variables
 let provideItemsMessage = null;
@@ -78,7 +59,7 @@ const allowedUserId = process.env.DEV;
 // Print and code-related variables
 let existingPrints = {};
 let latestPrints = {};
-//let imageUrls;
+let imageUrls;
 let lastGeneratedCode = '';
 const existingCodes = {};
 const cardCounts = {};
@@ -106,7 +87,7 @@ const shopItems = {
   const aliases = {
     'mlalo': ['ml', 'mlalo', 'mdraw', 'msummon'],
     'maddimage': ['mimageadd', 'maddimg', 'maddimage', 'mimgadd'],
-    'minventory': ['minv', 'mcardinv', 'mcards', 'minv', 'mcardinventory'],
+    'minventory': ['mcardinv', 'mcards','mcardinventory'],
     'mregister': ['mreg', 'msignup', 'mregister'],
     'mhelp': ['mh', 'mhelpme', 'mcommands', 'mhelp', 'mcmds'],
     'mview': ['mv', 'mshow', 'mview', 'mvw'],
@@ -118,7 +99,7 @@ const shopItems = {
     'mcardinfo': ['mci', 'mcard', 'mcardinfo'],
     'maddmoderator': ['maddmod', 'maddmoderator', 'maddmod'],
     'msearch': ['ms', 'msearch', 'mlook'],
-    'madddescription': ['madddesc', 'madddescription', 'madddesc', 'madd'],
+    'madddescription': ['madddesc', 'madddescription', 'madddesc'],
     'mtrade': ['mt', 'mtrade'],
     'mdamage': ['mdmg', 'mdamage'],
   };
@@ -138,14 +119,19 @@ const client = new Client({
 
 // Ready event
 client.on('ready', async () => {
-  console.log(chalk.green(`Logged in as ${client.user.username}!`));
-  
+  console.log(`Logged in as ${client.user.username}!`);
+
   //Set activity status
   client.user.setPresence({
     activities: [{ name: `mhelp`, type: ActivityType.Listening }],
     status: 'dnd',
   });
 
+  // Load latest prints from the database
+  const loadedLatestPrints = await loadLatestPrintsFromDatabase();
+
+  // Load existing prints from the database
+  loadExistingPrintsFromDatabase();
 });
 
 // Event listener for handling errors
@@ -155,7 +141,7 @@ client.on('error', (error) => {
 
 // Process unhandled exceptions and restart the bot
 process.on('uncaughtException', (error) => {
-  //console.error('Unhandled Exception:', error);
+  console.error('Unhandled Exception:', error);
   startBot(); // Restart the bot
   console.log('Restarting bot...');
 });
@@ -169,20 +155,40 @@ const connection = mysql.createPool({
   database: process.env.DB_NAME,
 });
 
+connection.getConnection((err, conn) => {
+  if (err) {
+    console.error('Database connection error:', err);
+  } else {
+    console.log('Database connected successfully!');
+    conn.release(); // zwalnia połączenie po sprawdzeniu
+  }
+});
+
+
 const query = util.promisify(connection.query).bind(connection);
 
 // Read imageUrls file and parse data
 try {
-  const imageUrlsData = fs.readFileSync(imageUrlsPath, 'utf8');
-  imageUrlList = JSON.parse(imageUrlsData); // Przypisz dane do nowej zmiennej
+const imageUrlsData = fs.readFileSync(imageUrlsPath, 'utf8');
+imageUrls = JSON.parse(imageUrlsData);
 } catch (error) {
-  console.error('Error reading imageUrls file:', error.message);
-  process.exit(1);
+console.error('Error reading imageUrls file:', error.message);
+process.exit(1);
 }
 
 // MessageCreate event
 client.on('messageCreate', async (msg) => {
   const command = msg.content.toLowerCase(); // Convert command to lowercase for case-insensitivity
+
+
+
+  /*// Check if the received command is an alias, and replace it with the actual command
+  for (const [actualCommand, aliasList] of Object.entries(aliases)) {
+    if (aliasList.includes(command)) {
+      msg.content = actualCommand;
+      break;
+    }
+  }*/
 
   if (msg.content === 'ping') {
     msg.channel.send('pong');
@@ -209,7 +215,7 @@ client.on('messageCreate', async (msg) => {
       ctx.drawImage(image, x, y, width, height);
     
       // Load and draw the overlay image
-      const overlayImageUrl = './images/frames/Frame01.png';
+      const overlayImageUrl = './Frame01.png';
       const overlayImage = await loadImage(overlayImageUrl);
       ctx.drawImage(overlayImage, x, y, width, height);
     
@@ -222,7 +228,7 @@ client.on('messageCreate', async (msg) => {
       const cardPrint = cardCounts[cardName];
       const cardCode = await generateUniqueCode();
     
-      const textBgHeight = 60;
+      /*const textBgHeight = 60;
       ctx.fillStyle = 'white';
       ctx.fillRect(x, y + height, width, textBgHeight);
       ctx.font = '40px Arial';
@@ -232,10 +238,10 @@ client.on('messageCreate', async (msg) => {
         `${cardName} #${cardPrint}  ~${cardCode}`,
         x + (width - textWidth) / 2,
         y + height + textBgHeight / 2 + 10
-      );
+      );*/
     
       // Load baseElement from the imageUrls.json file
-      //const imageUrls = JSON.parse(fs.readFileSync('imageUrls.json', 'utf8'));
+      const imageUrls = JSON.parse(fs.readFileSync('imageUrls.json', 'utf8'));
       const baseElement = imageUrls.find(img => img.name === cardName)?.baseElement || 'defaultBaseElement';
     
       return { cardPrint, cardCode, baseElement };
@@ -267,15 +273,27 @@ client.on('messageCreate', async (msg) => {
     
 
       const element = getRandomElementWithChances(elements, [9.5,9.5,9.5,9.5,9.5,9.5,5,9.5,9.5,9.5,9.5]); // Added
-      
+      //console.log('Element before getEmojiForElement:', element);
+      //console.log('getEmojiForElement(element):', getEmojiForElement(element));
       cardsData.push({ ...cardData, element });
+      //console.log('Element before getEmojiForElement:', element); // Added
+      //console.log('getEmojiForElement(element):', getEmojiForElement(element)); // Added
 
+      //console.log('Latest prints before update:', latestPrints);
+       // Update the latest print for this card in the database
+       //if(checkPrintExists(selectedImages[i].name==false)){
+       //addCardInfoToDatabase(selectedImages[i].name,cardData.cardPrint)
+       //}else{
+       //updateLatestPrintInDatabase(selectedImages[i].name, cardData.cardPrint);
        updateLatestPrintInDatabase(selectedImages[i].name, cardData.cardPrint);
+       //console.log(selectedImages[i].name);
+       //console.log(cardData.cardPrint);
+       //}
     }
 
     const buffer = canvas.toBuffer();
 
-    const reply = await msg.reply({
+    /*const reply = await msg.reply({
       content: `Summoning 3 cards:`,
       files: [buffer],
       components: [
@@ -303,7 +321,74 @@ client.on('messageCreate', async (msg) => {
           ],
         },
       ],
-    });
+    });*/
+
+    const cardBuffers = []; // Array to store image buffers for each card
+
+for (let i = 0; i < selectedImages.length; i++) {
+  const x = i * (singleImageWidth + spacing) + spacing;
+  const y = topMargin + (canvas.height - topMargin * 2 - singleImageHeight) / 2;
+
+  const cardData = await loadAndDrawImage(
+    selectedImages[i].url,
+    x,
+    y,
+    singleImageWidth,
+    singleImageHeight,
+    selectedImages[i].name,
+    selectedImages[i].series, 
+    selectedImages[i].baseElement
+  );
+
+  // Create buffer for the card image
+  const buffer = canvas.toBuffer();
+  cardBuffers.push(buffer); // Add buffer to the array
+}
+
+// Prepare the attachment for the first card
+const attachment = {
+  name: 'card_1.png', // Set the file name for the first card image
+  attachment: cardBuffers[0], // Use the buffer for the first card
+};
+
+// Create an embed for the card
+const embed = new EmbedBuilder()
+  .setColor('#3498db') // Set the embed color
+  .setTitle('Summoning 3 cards:') // Set the title of the embed
+  .setImage('attachment://card_1.png') // Set the image in the embed
+  .setFooter({ text: 'Select a card using the buttons below.' }); // Add footer information
+
+// Send the message with the embed and attachment
+const reply = await msg.reply({
+  embeds: [embed], // Include the embed
+  files: [attachment], // Ensure files is an array
+  components: [
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 1,
+          label: '1', // Button label for the first card
+          custom_id: '1',
+        },
+        {
+          type: 2,
+          style: 1,
+          label: '2', // Button label for the second card
+          custom_id: '2',
+        },
+        {
+          type: 2,
+          style: 1,
+          label: '3', // Button label for the third card
+          custom_id: '3',
+        },
+      ],
+    },
+  ],
+});
+
 
     const filter = (interaction) => interaction.isButton() && interaction.message.id === reply.id;
     const collector = reply.createMessageComponentCollector({ filter, time: 15000 });
@@ -344,13 +429,79 @@ client.on('messageCreate', async (msg) => {
                 console.log('Series:', series); // Add this to check the value of series before calling the function
 
                 // Add card to the database
-                addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, cardData.baseElement);
-
+               // addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, cardData.baseElement);
+               addCardToDatabase(
+                userId, 
+                cardName, 
+                cardUrl, 
+                cardPrint, 
+                cardCode, 
+                cardData.baseElement,  // this should be baseElement
+                (error, result) => {
+                    if (error) {
+                        console.error('Error:', error);
+                    } else {
+                        console.log(result);
+                    }
+                }
+            );
+            
+            
     
                 try {
                   await interaction.deferUpdate();
                   const emojiForElement = getEmojiForElement(element);
-                  await interaction.channel.send(`<@${interaction.user.id}> "${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` of ${element} element has been added to your inventory!\nBase Element: ${cardData.baseElement}`);
+
+                  const classEmojis = {
+                    'Mage': '🧙‍♂️',
+                    'Warrior': '⚔️',
+                    'Tank': '🛡️',
+                    'Gambler': '🎲',
+                    'Engineer': '🔧',
+                    'Rogue': '🗡️',
+                    'N/A': '❓'
+                  };
+
+                  // query to get the class emoji from card_info table
+const getClassEmojiQuery = 'SELECT class FROM card_info WHERE card_name = ?';
+const getClassEmojiValues = [cardName];
+
+connection.query(getClassEmojiQuery, getClassEmojiValues, async (classErr, classResults) => {
+  if (classErr) {
+    console.error('Error fetching class from database:', classErr.message);
+  } else {
+    const className = classResults.length > 0 ? classResults[0].class : 'N/A';
+    const classEmoji = classEmojis[className] || classEmojis['N/A'];
+
+    /*await interaction.channel.send(
+      `🔔 <@${interaction.user.id}> **New Card Added to Your Inventory!** 🔔\n\n` +
+      ` **Card:** "${cardName}" **#${cardPrint}**\n` +
+      ` **Code:** \`${cardCode}\`\n` +
+      ` **Series:** ${series}\n` +
+      ` **Element:** ${element}\n` +
+      ` **Base Element:** ${cardData.baseElement}\n` +
+      ` **Class:** ${classEmoji} ${className}`
+    );*/
+    const { MessageEmbed } = require('discord.js');
+
+const embed = new EmbedBuilder()
+  .setColor('#3498db') // kolor embedu
+  .setTitle('🔔 New Card Added to Your Inventory! 🔔')
+  .setDescription(
+    `<@${interaction.user.id}> "${cardName}" #${cardPrint} \`${cardCode}\` ` +
+    `from \`${series}\`, Element: ${element}, Base Element: ${cardData.baseElement}, ` +
+    `Class: ${classEmoji} ${className}`
+  )
+  //.setFooter('CardBot', 'https://example.com/icon.png') // opcjonalny footer z ikoną bota
+  //.setTimestamp(); // dodaje datę i czas
+
+await interaction.channel.send({ embeds: [embed] });
+
+  }
+});
+
+
+                  //await interaction.channel.send(`<@${interaction.user.id}> "${cardName}" #${cardPrint} \`${cardCode}\` from \`${series}\` of ${element} element has been added to your inventory!\nBase Element: ${cardData.baseElement}`);
     
                   // Check if it's the first card of this type
                   if (cardResults.length === 0) {
@@ -409,143 +560,162 @@ client.on('messageCreate', async (msg) => {
   
     return;
   } else if (startsWithCommand(msg.content, 'minventory') && !msg.interaction) {
-    const userId = msg.author.id;
-    let currentPage = 1;
-    const cardsPerPage = 10;
-    let inventoryMessage = null;
-
-    // Parse the name parameter from the command
-    const match = msg.content.match(/name=(\S+)/);
-    const cardName = match ? match[1] : null;
-
-    if (msg.content.length > 'minventory'.length) return;
-
-    // Generate unique button IDs based on user, command invocation time, and button type
-    const buttonLeftId = `buttonLeft_${userId}_${Date.now()}_inventory`;
-    const buttonRightId = `buttonRight_${userId}_${Date.now()}_inventory`;
-
-    const sendInventory = (page) => {
-        // Get the total number of cards the player has
-        let countQuery, query, values;
-
-        if (cardName) {
-            // Count only cards with the specified name
-            countQuery = 'SELECT COUNT(*) AS cardCount FROM card_inventory WHERE user_id = ? AND card_name = ?';
-            query = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_name = ? ORDER BY date_added DESC LIMIT ? OFFSET ?';
-            values = [userId, cardName, cardsPerPage, (page - 1) * cardsPerPage];
-        } else {
-            // Count all cards
-            countQuery = 'SELECT COUNT(*) AS cardCount FROM card_inventory WHERE user_id = ?';
-            query = 'SELECT * FROM card_inventory WHERE user_id = ? ORDER BY date_added DESC LIMIT ? OFFSET ?';
-            values = [userId, cardsPerPage, (page - 1) * cardsPerPage];
-        }
-
-        connection.query(countQuery, [userId, cardName], (err, countResults) => {
-            if (err) {
-                console.error('Error counting player cards:', err.message);
-                return;
-            }
-
-            const totalCards = countResults[0].cardCount;
-
-            // Calculate the total number of pages
-            const totalPages = Math.ceil(totalCards / cardsPerPage);
-
-            // Ensure the requested page is within bounds
-            currentPage = Math.max(1, Math.min(totalPages, page));
-
-            connection.query(query, values, (err, results) => {
-                if (err) {
-                    console.error('Error fetching player inventory:', err.message);
-                    return;
-                }
-
-                if (results.length === 0 && !inventoryMessage) { 
-                  msg.reply(`Your inventory is empty.`);
+      const userId = msg.author.id;
+      let currentPage = 1;
+      const cardsPerPage = 10;
+      let inventoryMessage = null;
+  
+      // Parse the card name parameter from the command
+      const match = msg.content.match(/name=(\S+)/);
+      const cardName = match ? match[1] : null;
+  
+      // Generate unique button IDs based on user, command invocation time, and button type
+      const buttonLeftId = `buttonLeft_${userId}_${Date.now()}_inventory`;
+      const buttonRightId = `buttonRight_${userId}_${Date.now()}_inventory`;
+  
+      // Mapping of card classes to emojis
+      const classEmojiMap = {
+          'Mage': '🧙‍♂️',
+          'Warrior': '⚔️',
+          'Tank': '🛡️',
+          'Gambler': '🎲',
+          'Engineer': '🔧',
+          'Rogue': '🗡️',
+          'N/A': '❓', // For cards without a class assigned
+      };
+  
+      const sendInventory = (page) => {
+          let countQuery, query, values;
+  
+          // Count cards based on specified name or all cards
+          if (cardName) {
+              countQuery = 'SELECT COUNT(*) AS cardCount FROM card_inventory WHERE user_id = ? AND card_name = ?';
+              query = 'SELECT * FROM card_inventory WHERE user_id = ? AND card_name = ? ORDER BY date_added DESC LIMIT ? OFFSET ?';
+              values = [userId, cardName, cardsPerPage, (page - 1) * cardsPerPage];
+          } else {
+              countQuery = 'SELECT COUNT(*) AS cardCount FROM card_inventory WHERE user_id = ?';
+              query = 'SELECT * FROM card_inventory WHERE user_id = ? ORDER BY date_added DESC LIMIT ? OFFSET ?';
+              values = [userId, cardsPerPage, (page - 1) * cardsPerPage];
+          }
+  
+          // Count the total number of cards
+          connection.query(countQuery, [userId, cardName], (err, countResults) => {
+              if (err) {
+                  console.error('Error counting player cards:', err.message);
                   return;
               }
-
-                let description = `You have ${totalCards} cards.`;
-
-                if (cardName) {
-                    description = `You have ${totalCards} cards of type "${cardName}".`;
-                }
-
-                const embed = new EmbedBuilder()
-                    .setColor('#0099ff')
-                    .setTitle(`Your Card Inventory - Page ${currentPage}/${totalPages}`)
-                    .setDescription(description)
-                    .addFields(
-                        results.map((card, index) => ({
-                            name: ` `,
-                            value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  •  \`${card.series}\`  •  Element: ${card.element} ${getEmojiForElement(card.element)}\nBase Element: ${card.base_element}`,  // Dodane
-                        }))
-                    );
-
-                // Add buttons with emoji arrows directly to the components array
-                const components = [
-                    {
-                        type: 1, // ActionRow
-                        components: [
-                            {
-                                type: 2, // Button
-                                style: currentPage === 1 ? 2 : 1, // Disable if on the first page
-                                label: '⬅️ Previous',
-                                customId: buttonLeftId,
-                                disabled: currentPage === 1,
-                            },
-                            {
-                                type: 2, // Button
-                                style: currentPage === totalPages ? 2 : 1, // Disable if on the last page
-                                label: '➡️ Next',
-                                customId: buttonRightId,
-                                disabled: currentPage === totalPages,
-                            },
-                        ],
-                    },
-                ];
-
-                // If the inventory message is not sent, send it
-                if (!inventoryMessage) {
-                    msg.reply({ embeds: [embed], components: components }).then((message) => {
-                        inventoryMessage = message;
-                    });
-                } else {
-                    // If the inventory message is sent, edit it
-                    inventoryMessage.edit({ embeds: [embed], components: components }).catch((err) => {
-                        console.error('Error editing inventory message:', err);
-                    });
-                }
-            });
-        });
-    };
-
-
-
-
-    // Handle button interactions
-    client.on('interactionCreate', async (interaction) => {
-        if (!interaction.isButton()) return;
-        
-        if (interaction.message.id !== inventoryMessage.id) return;
-
-        // Handle Left button
-        if (interaction.customId === buttonLeftId||interaction.user.id == msg.author.id) {
-            // Acknowledge the interaction
-            interaction.deferred ? interaction.editReply('') : interaction.deferUpdate();
-            sendInventory(currentPage - 1);
-        }
-
-        // Handle Right button
-        if (interaction.customId === buttonRightId||interaction.user.id == msg.author.id) {
-            // Acknowledge the interaction
-            interaction.deferred ? interaction.editReply('') : interaction.deferUpdate();
-            sendInventory(currentPage + 1);
-        }
-    });
-
-    // Initial inventory display
-    sendInventory(currentPage);
+  
+              const totalCards = countResults[0].cardCount;
+              const totalPages = Math.ceil(totalCards / cardsPerPage);
+              currentPage = Math.max(1, Math.min(totalPages, page));
+  
+              // Fetch the player's inventory cards
+              connection.query(query, values, (err, results) => {
+                  if (err) {
+                      console.error('Error fetching player inventory:', err.message);
+                      return;
+                  }
+  
+                  if (results.length === 0) {
+                      msg.reply(`Your inventory is empty.`);
+                      return;
+                  }
+  
+                  const cardNames = results.map(card => card.card_name);
+                  const cardInfoQuery = `SELECT card_name, class FROM card_info WHERE card_name IN (?)`;
+  
+                  // Fetch additional card info
+                  connection.query(cardInfoQuery, [cardNames], (err, cardInfoResults) => {
+                      if (err) {
+                          console.error('Error fetching card info:', err.message);
+                          return;
+                      }
+  
+                      const cardInfoMap = {};
+                      // Map card names to their classes
+                      cardInfoResults.forEach(info => {
+                          cardInfoMap[info.card_name] = info.class;
+                      });
+  
+                      let description = `You have ${totalCards} cards.`;
+                      if (cardName) {
+                          description = `You have ${totalCards} cards of type "${cardName}".`;
+                      }
+  
+                      // Create an embed message for the inventory
+                      const embed = new EmbedBuilder()
+                          .setColor('#0099ff')
+                          .setTitle(`Your Card Inventory - Page ${currentPage}/${totalPages}`)
+                          .setDescription(description)
+                          .addFields(
+                              results.map((card) => {
+                                  const cardClass = cardInfoMap[card.card_name] || 'N/A';
+                                  const emoji = classEmojiMap[cardClass] || '❓'; // Add emoji for the class
+                                  return {
+                                      name: ` `,
+                                      value: ` \`${card.card_code}\`  •  ${card.card_name}  •  #${card.card_print}  •  \`${card.series}\`  •  Class: ${cardClass} ${emoji}  •  Element: ${card.element} ${getEmojiForElement(card.element)}\nBase Element: ${card.base_element}`,
+                                  };
+                              })
+                          );
+  
+                      // Define button components for pagination
+                      const components = [
+                          {
+                              type: 1,
+                              components: [
+                                  {
+                                      type: 2,
+                                      style: currentPage === 1 ? 2 : 1, // Disable if on the first page
+                                      label: '⬅️ Previous',
+                                      customId: buttonLeftId,
+                                      disabled: currentPage === 1,
+                                  },
+                                  {
+                                      type: 2,
+                                      style: currentPage === totalPages ? 2 : 1, // Disable if on the last page
+                                      label: '➡️ Next',
+                                      customId: buttonRightId,
+                                      disabled: currentPage === totalPages,
+                                  },
+                              ],
+                          },
+                      ];
+  
+                      // If the inventory message is not sent, send it
+                      if (!inventoryMessage) {
+                          msg.reply({ embeds: [embed], components: components }).then((message) => {
+                              inventoryMessage = message;
+                          });
+                      } else {
+                          // If the inventory message is sent, edit it
+                          inventoryMessage.edit({ embeds: [embed], components: components }).catch((err) => {
+                              console.error('Error editing inventory message:', err);
+                          });
+                      }
+                  });
+              });
+          });
+      };
+  
+      // Handle button interactions
+      client.on('interactionCreate', async (interaction) => {
+          if (!interaction.isButton()) return;
+  
+          // Handle Left button
+          if (interaction.customId === buttonLeftId) {
+              interaction.deferred ? interaction.editReply('') : interaction.deferUpdate();
+              sendInventory(currentPage - 1);
+          }
+  
+          // Handle Right button
+          if (interaction.customId === buttonRightId) {
+              interaction.deferred ? interaction.editReply('') : interaction.deferUpdate();
+              sendInventory(currentPage + 1);
+          }
+      });
+  
+      // Initial inventory display
+      sendInventory(currentPage);
   } else if (matchesCommand(msg.content, 'mregister') && !msg.interaction) {
     const userId = msg.author.id;
 
@@ -595,7 +765,7 @@ client.on('messageCreate', async (msg) => {
     msg.reply({ embeds: [embed] });
   } else if (startsWithCommand(msg.content, 'mview') && !msg.interaction) {
     const userId = msg.author.id;
-    const codeToView = msg.content.slice('mview'.length).trim(); // Updated to use 'mview'
+    const codeToView = msg.content.slice('!view'.length).trim();
 
     // Check if the user exists in the players table
     const checkUserQuery = 'SELECT * FROM players WHERE user_id = ?';
@@ -606,7 +776,7 @@ client.on('messageCreate', async (msg) => {
             console.error('Error checking user in database:', err.message);
         } else {
             if (userResults.length === 0) {
-                // User does not exist, inform them to use the mregister command
+                // User does not exist, inform them to use the !register command
                 msg.reply('You need to register first! Use the command `mregister`.');
             } else {
                 // User exists, check if a card with the given code exists in their inventory
@@ -625,66 +795,54 @@ client.on('messageCreate', async (msg) => {
                             const imageUrl = card.card_url;
                             const print = card.card_print;
                             const name = card.card_name;
-                            const frameId = card.frame_id || 1; // Default to frame_id 1 if not set
 
                             // Load the card image
                             const cardImage = await loadImage(imageUrl);
 
-                            // Load the frame image based on frameId
-                            const getFrameQuery = 'SELECT frame_url FROM frames WHERE frame_id = ?';
-                            connection.query(getFrameQuery, [frameId], async (frameErr, frameResults) => {
-                                if (frameErr) {
-                                    console.error('Error fetching frame URL:', frameErr.message);
-                                    msg.reply('Error fetching frame information.');
-                                    return;
-                                }
+                            // Define new image size
+                            const newWidth = 1500;
+                            const newHeight = 2100;
+                            const overlayWidthIncrease = 5; // Increase the width by five pixels
+                            const overlayShiftLeft = 1; // Shift the overlay one pixel to the left
+                            const canvas = createCanvas(newWidth, newHeight);
+                            const ctx = canvas.getContext('2d');
 
-                                const frameUrl = frameResults.length > 0 ? frameResults[0].frame_url : './defaultFrame.png'; // Default frame if not found
+                            // Calculate new image proportions
+                            const scaleFactor = Math.min(newWidth / cardImage.width, newHeight / cardImage.height);
 
-                                // Define new image size
-                                const newWidth = 1500;
-                                const newHeight = 2100;
-                                const overlayWidthIncrease = 5; // Increase the width by five pixels
-                                const overlayShiftLeft = 1; // Shift the overlay one pixel to the left
-                                const canvas = createCanvas(newWidth, newHeight);
-                                const ctx = canvas.getContext('2d');
+                            // Calculate position to center the image
+                            const offsetX = (newWidth - cardImage.width * scaleFactor) / 2;
+                            const offsetY = (newHeight - cardImage.height * scaleFactor) / 2;
 
-                                // Calculate new image proportions
-                                const scaleFactor = Math.min(newWidth / cardImage.width, newHeight / cardImage.height);
+                            // Draw the card image with the new proportions and position
+                            ctx.drawImage(cardImage, offsetX, offsetY, cardImage.width * scaleFactor, cardImage.height * scaleFactor);
 
-                                // Calculate position to center the image
-                                const offsetX = (newWidth - cardImage.width * scaleFactor) / 2;
-                                const offsetY = (newHeight - cardImage.height * scaleFactor) / 2;
+                            // Load and draw the overlay image
+                            const overlayImageUrl = './Frame01.png'; // Replace with the path to your second overlay image
+                            const overlayImage = await loadImage(overlayImageUrl);
 
-                                // Draw the card image with the new proportions and position
-                                ctx.drawImage(cardImage, offsetX, offsetY, cardImage.width * scaleFactor, cardImage.height * scaleFactor);
+                            // Scale the overlay image to the size of the card image with width increase
+                            const overlayWidth = cardImage.width + overlayWidthIncrease;
+                            const overlayHeight = cardImage.height;
+                            const overlayX = offsetX - overlayWidthIncrease / 2 - overlayShiftLeft; // Shift and center the overlay horizontally
+                            const overlayY = offsetY;
 
-                                // Load and draw the frame image
-                                const frameImage = await loadImage(frameUrl);
+                            ctx.drawImage(
+                                overlayImage,
+                                overlayX,
+                                overlayY,
+                                overlayWidth * scaleFactor,
+                                overlayHeight * scaleFactor
+                            );
 
-                                // Scale the frame image to the size of the card image with width increase
-                                const frameWidth = cardImage.width + overlayWidthIncrease;
-                                const frameHeight = cardImage.height;
-                                const frameX = offsetX - overlayWidthIncrease / 2 - overlayShiftLeft; // Shift and center the frame horizontally
-                                const frameY = offsetY;
+                            ctx.font = '40px Arial';
+                            ctx.fillStyle = 'white';
+                            ctx.fillText(`"${name}" #${print} ~${codeToView})`, 20, canvas.height - 30);
 
-                                ctx.drawImage(
-                                    frameImage,
-                                    frameX,
-                                    frameY,
-                                    frameWidth * scaleFactor,
-                                    frameHeight * scaleFactor
-                                );
+                            const buffer = canvas.toBuffer();
 
-                                ctx.font = '40px Arial';
-                                ctx.fillStyle = 'white';
-                                ctx.fillText(`"${name}" #${print} ~${codeToView}`, 20, canvas.height - 30);
-
-                                const buffer = canvas.toBuffer();
-
-                                // Send the image to the user
-                                msg.reply({ files: [buffer] });
-                            });
+                            // Send the image to the user
+                            msg.reply({ files: [buffer] });
                         }
                     }
                 });
@@ -862,34 +1020,35 @@ client.on('messageCreate', async (msg) => {
   } else if (startsWithCommand(msg.content, 'mcardinfo') && !msg.interaction) {
     const cardCode = msg.content.split(' ')[1];
     if (!cardCode) {
-      msg.reply('Please provide a card code.');
-      return;
+        msg.reply('Please provide a card code.');
+        return;
     }
-  
+
     const userId = msg.author.id;
-  
-    // Fetch card information and statistics from the database
+
+    // Fetch card information, statistics, and class from the database
     const query = `
-    SELECT ci.*, cs.*
+    SELECT ci.*, cs.*, c.class
     FROM card_inventory ci
     LEFT JOIN card_stats cs ON ci.card_code = cs.card_code
+    LEFT JOIN card_info c ON ci.card_name = c.card_name
     WHERE ci.user_id = ? AND ci.card_code = ?
     `;
     const values = [userId, cardCode];
-  
+
     connection.query(query, values, (err, results) => {
-      if (err) {
-        console.error('Error fetching card info from database:', err.message);
-        msg.reply('An error occurred while fetching card info.');
-      } else {
-        if (results.length === 0) {
-          msg.reply('You do not own a card with that code.');
+        if (err) {
+            console.error('Error fetching card info from database:', err.message);
+            msg.reply('An error occurred while fetching card info.');
         } else {
-          const cardInfo = results[0];
-          const embed = createCardInfoEmbed(cardInfo);
-          msg.reply({ embeds: [embed] });
+            if (results.length === 0) {
+                msg.reply('You do not own a card with that code.');
+            } else {
+                const cardInfo = results[0];
+                const embed = createCardInfoEmbed(cardInfo);
+                msg.reply({ embeds: [embed] });
+            }
         }
-      }
     });
   } else if (startsWithCommand(msg.content, 'maddmoderator') && !msg.interaction) {
     // Check if the user executing the command has appropriate permissions
@@ -1025,46 +1184,40 @@ client.on('messageCreate', async (msg) => {
             });
         }
     }
-  } /*broken*/ else if (startsWithCommand(msg.content, 'madddescription') && !msg.interaction) {
+  } else if (startsWithCommand(msg.content, 'madddescription') && !msg.interaction) {
     const usertag = msg.author.tag;
     const userId = msg.author.id;
     const channel_ = msg.channel.id;
+    const serverChannel_ = msg.guild.channels.cache.get(channel_);
 
+    // Check if the correct number of arguments is provided
     const args = msg.content.slice('madddescription'.length).trim().split(' ');
+
+    console.log('Debug info:');
+    console.log('Arguments:', args);
 
     if (args.length < 2) {
         msg.reply('Please provide the correct number of arguments: <card_name> <card_series>');
         return;
     }
-
     if (msg.guild && msg.guild.id !== guildId) {
         msg.reply('This command is restricted to a specific server.');
         return;
     }
-
     const cardName = args[0].toLowerCase();
     const cardSeries = args.slice(1).join(' ').toLowerCase();
-
-    const now = Date.now();
-    const cooldownAmount = 1800000; // 30 minutes in milliseconds
-
-    if (userCooldowns.has(userId)) {
-        const expirationTime = userCooldowns.get(userId) + cooldownAmount;
-        if (now < expirationTime) {
-            const timeLeft = Math.ceil((expirationTime - now) / 1000);
-            return msg.reply(`You need to wait ${timeLeft} seconds before using this command again.`);
-        }
-    }
-
-    userCooldowns.set(userId, now); // Set cooldown
-
+    
     let matchedCharacters = [];
+    let names1 = null;
+
     for (let i = 0; i < characters.length; i++) {
         const characterName = characters[i].name.toLowerCase();
         const characterSeries = characters[i].series.toLowerCase();
-
+    
         if (cardName === characterName && characterSeries.includes(cardSeries)) {
             matchedCharacters.push(characters[i]);
+    
+            // Assign directly to globalData to avoid issues with names1
             globalData.cardName0 = characters[i].name.toLowerCase();
             globalData.cardSeries0 = characters[i].series.toLowerCase();
         }
@@ -1075,101 +1228,145 @@ client.on('messageCreate', async (msg) => {
         return;
     }
 
+    // Display matched characters in the confirmation message
     const matchedCharactersList = matchedCharacters
         .map((char) => `${char.name} from ${char.series}`)
         .join('\n');
 
     const confirmationEmbed = new EmbedBuilder()
-        .setTitle('Is this the character to which you want to add a description?')
-        .setDescription(`***${matchedCharactersList}*** \n If yes, you have 1 minute to send a description as the next message. If the character does not match, type "no" and use the command again.`)
+        .setTitle(`Is this the character to which you want to add a description?`)
+        .setDescription(`***${matchedCharactersList}*** \n If yes, you have 1 minute to send a description as next message. If the character does not match, type "no" and use the command again.`)
         .setColor('#3498db');
-
+    
     msg.channel.send({ embeds: [confirmationEmbed] });
-
+    
+    // Wait for user response
     const filter = (response) => response.author.id === msg.author.id;
     const collector = msg.channel.createMessageCollector({ filter: filter, time: 60000 });
+    
+    const foundCard = characters.find((card) => {
+        const isCardNameMatch = card.name.toLowerCase() === cardName.toLowerCase();
+        const isSeriesMatch = card.series && card.series.toLowerCase().includes(cardSeries);
+    
+        return isCardNameMatch && isSeriesMatch;
+    });
 
-    collector.on('collect', async (response) => {
-        const userResponse = response.content.trim();
+    collector.on('collect', (response) => {
+        userResponse = response.content.trim();
 
+        // Check if the message is sent by the bot
         if (response.author.bot) {
             return;
         }
-
-        const foundCard = characters.find((card) => {
-            const isCardNameMatch = card.name.toLowerCase() === cardName.toLowerCase();
-            const isSeriesMatch = card.series && card.series.toLowerCase().includes(cardSeries);
-            return isCardNameMatch && isSeriesMatch;
-        });
-
+        
         if (!foundCard) {
             msg.reply('The specified card does not exist.');
             return;
         }
 
+        // Check if a description for the card already exists
         const existingDescription = foundCard.description;
 
         if (existingDescription) {
-            collector.stop(); // Stop the collector
-            return msg.reply('Description already exists for the specified card.');
+            msg.reply('Description already exists for the specified card.');
+            return;
         }
 
-        if (userResponse.toLowerCase() === 'no') {
-            msg.reply('Adding description canceled.');
-            collector.stop();
-            return;
-        } else if (userResponse.length < 20) {
-            collector.stop(); // Stop the collector
-            return msg.reply('Description is too short!');
-        } else {
-            // Wysyłanie wiadomości do kanału moderatorów
-            const moderatorChannelId = '1203700143397011536'; // zamień na właściwy kanał
-            const moderatorChannel = msg.guild.channels.cache.get(moderatorChannelId);
-
-            if (moderatorChannel) {
-                const descriptionEmbed = new EmbedBuilder()
-                    .setTitle('New Card Description Request')
-                    .addFields(
-                        { name: 'Card Name', value: cardName },
-                        { name: 'Card Series', value: cardSeries },
-                        { name: 'Description', value: userResponse },
-                        { name: 'Submitted by', value: `<@${userId}> (${usertag})` }
-                    )
-                    .setColor('#f1c40f');
-
-                const buttons = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('confirm')
-                            .setLabel('Accept')
-                            .setStyle(ButtonStyle.Success),
-                        new ButtonBuilder()
-                            .setCustomId('cancel')
-                            .setLabel('Decline')
-                            .setStyle(ButtonStyle.Danger)
-                    );
-
-                moderatorChannel.send({
-                    embeds: [descriptionEmbed],
-                    components: [buttons]
-                });
-
-                msg.reply('Description sent and waiting for moderator approval!'); // Notify user
-            } else {
-                msg.reply('Could not find the moderator channel.');
+        // Check if the user has already added a description for this card
+        const existingRequestQuery = 'SELECT * FROM user_data WHERE user_id = ? AND card_name = ? AND channel_id = ?';
+        connection.query(existingRequestQuery, [userId, names1, channel_], (requestErr, requestResults) => {
+            if (requestErr) {
+                console.error('Error checking existing description request:', requestErr.message);
+                return;
             }
 
-            collector.stop(); // Stop the collector after sending the message
-        }
-    });
+            /*if (requestResults.length > 0) {
+                msg.reply('You have already requested a description for this card. Please wait for the admin to review.');
+                return;
+            }*/
+            // If the user does not want to add a description
+            if (userResponse.toLowerCase() === 'no') {
+                msg.reply('Adding description canceled.');
+                collector.stop();
+                return;
+            } else if (userResponse.length < 20) {
+                msg.reply('Description is too short!');
+                return;
+            } else if (userResponse.length >= 20) {
+                // If the user sent a description (minimum 20 characters), send it to the specified channel
+                const serverChannel = msg.guild.channels.cache.get(serverChannelId);
 
+                if (serverChannel) {
+                    const descriptionEmbed = new EmbedBuilder()
+                        .setTitle('New Description Request')
+                        .addFields(
+                            { name: 'User', value: msg.author.tag, inline: true },
+                            { name: 'Character', value: foundCard.name, inline: true },
+                            { name: 'Series', value: foundCard.series, inline: true },
+                            { name: 'Description', value: userResponse }
+                        )
+                        .setTimestamp()
+                        .setColor('#2ecc71');
+
+                    const confirm = new ButtonBuilder()
+                        .setCustomId('confirm')
+                        .setLabel('Confirm')
+                        .setStyle(ButtonStyle.Success);
+
+                    const cancel = new ButtonBuilder()
+                        .setCustomId('cancel')
+                        .setLabel('Cancel')
+                        .setStyle(ButtonStyle.Danger);
+
+                    const row = new ActionRowBuilder()
+                        .addComponents(cancel, confirm);
+
+                    // Check if the user response has content
+                    if (userResponse.trim() !== '') {
+                        //descriptionEmbed.setDescription(userResponse);
+                        description_ = userResponse;
+                        serverChannel.send({
+                            embeds: [descriptionEmbed],
+                            components: [row]
+                        })
+                        .then(() => {
+                            msg.reply('Description request sent successfully! Wait for an admin to accept or decline it!');
+                        })
+                        .catch((error) => {
+                            console.error('Error sending message:', error);
+                            msg.reply(`An error occurred while adding the description: ${error.message}`);
+                        });
+                    } else {
+                        msg.reply('Description cannot be empty. Adding description canceled.');
+                    }
+                } else {
+                    msg.reply('Server channel not found. Please configure the server channel ID in the bot configuration.');
+                }
+                console.log(`desc:${description_}`)
+                // Store data in the database
+                const storeDataQuery = 'INSERT INTO user_data (user_id, channel_id, card_name, usertag, description) VALUES (?, ?, ?, ?, ?)';
+                connection.query(storeDataQuery, [userId, channel_, names1, usertag, description_], (storeErr) => {
+                    if (storeErr) {
+                        console.error('Error storing user data in the database:', storeErr.message);
+                        return;
+                    }
+                    // Add the description to the character in the characters array
+                    foundCard.description = description_;
+
+                    // Optionally, update the 'imageUrls.json' file with the modified characters array
+                    fs.writeFileSync('imageUrls.json', JSON.stringify(characters, null, 2));
+                });
+                collector.stop();
+            }
+        });
+    });
+    
     collector.on('end', (collected, reason) => {
         if (reason === 'time') {
             msg.reply('Command timed out. Please try again.');
         }
-    });
-} 
-else if (startsWithCommand(msg.content, 'mtrade') && !msg.interaction) {
+    });    
+  } else if (startsWithCommand(msg.content, 'mtrade') && !msg.interaction) {
     const partialUsername = msg.content.slice('mtrade'.length).trim();
 
     if (!partialUsername) {
@@ -1463,40 +1660,167 @@ else if (startsWithCommand(msg.content, 'mtrade') && !msg.interaction) {
             msg.reply(`Changed the frame color of card ${cardCode}.`);
         });
     }
-  } else if (startsWithCommand(msg.content, 'mframe') && !msg.interaction) {
-  const args = msg.content.slice('mframe'.length).trim().split(' ');
-  const cardCode = args[0];
-  const newFrameName = args.slice(1).join(' '); // Handle multi-word frame names
+  } else if (startsWithCommand(msg.content, 'minvade') && !msg.interaction) {
 
-  // Query to get the frame_id for the given frame_name
-  const getFrameIdQuery = 'SELECT frame_id FROM frames WHERE frame_name = ?';
-  connection.query(getFrameIdQuery, [newFrameName], (err, frameResults) => {
-      if (err) {
-          console.error('Error fetching frame ID:', err.message);
-          msg.reply('Error fetching frame information.');
-          return;
+    // send initial embed with image and buttons
+    const embed = new EmbedBuilder()
+      .setColor('#0099ff')
+      .setTitle('Invasion [PVE]')
+      .setDescription('Choose dungeon.')
+      .setImage('https://cdn.discordapp.com/attachments/1235003522307850302/1301551872661782538/2.png?ex=6724e424&is=672392a4&hm=49d23b20e477cbd699605d36c49e63d3dee1484651d6821a32901ec3b25383e1&')
+      .setTimestamp();
+  
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('egypt')
+          .setLabel('Stronghold')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('poland')
+          .setLabel('Gambler\'s Nest')
+          .setStyle(ButtonStyle.Primary)
+      );
+  
+    const message = await msg.channel.send({ embeds: [embed], components: [row] });
+  
+    // interaction collector for button clicks
+    const filter = (interaction) => ['egypt', 'poland'].includes(interaction.customId) && interaction.user.id === msg.author.id;
+    const collector = message.createMessageComponentCollector({ filter, time: 60000 });
+  
+    collector.on('collect', async (interaction) => {
+      if (interaction.customId === 'poland') {
+        // update embed and buttons for Poland
+        const newEmbed = new EmbedBuilder()
+          .setColor('#ff0000')
+          .setTitle('Poland Invasion [PVE]')
+          .setDescription('You have chosen to invade Poland! Prepare for battle.')
+          .setImage('https://cdn.discordapp.com/attachments/1235003522307850302/1301481556967424050/111.png?ex=6724a2a7&is=67235127&hm=59785f4d312d578114dacdc68fef81169d36c0a17083ac96061d82642516e6fe&') // Replace with Poland image URL
+          .setTimestamp();
+  
+        const newRow = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId('easyPL')
+              .setLabel('Easy')
+              .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId('hardPL')
+              .setLabel('Hard')
+              .setStyle(ButtonStyle.Secondary)
+          );
+  
+        await interaction.update({ embeds: [newEmbed], components: [newRow] });
+      }else if (interaction.customId === 'egypt') {
+        // update embed and buttons for Egypt
+        const newEmbed = new EmbedBuilder()
+          .setColor('#ffd700')
+          .setTitle('Egypt Invasion [PVE]')
+          .setDescription('You have chosen to invade Egypt! Get ready to country of frogs.')
+          .setImage('https://imgs.search.brave.com/svzXLIAXIkmDyoeyIn9JKxdgxZOWdURHqBkGZ87usyo/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9jZG4u/YnJpdGFubmljYS5j/b20vODYvMTg2LTA1/MC03NEQ1NDczNS9t/YXAtRWd5cHQtYm9y/ZGVyLWFyZWFzLWNv/dW50cnktU3VkYW4u/anBnP3c9NDAwJmg9/MzAwJmM9Y3JvcA') // Replace with Egypt image URL
+          .setTimestamp();
+  
+        const newRow = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId('easyEG')
+              .setLabel('Easy')
+              .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId('hardEG')
+              .setLabel('Hard')
+              .setStyle(ButtonStyle.Secondary)
+          );
+  
+        await interaction.update({ embeds: [newEmbed], components: [newRow] });
       }
+      
 
-      if (frameResults.length === 0) {
-          msg.reply('Frame not found.');
-          return;
+      const cfilter = (interaction) => ['hardPL', 'hardEG', 'easyPL', 'easyEG'].includes(interaction.customId) && interaction.user.id === msg.author.id;
+    const ccollector = message.createMessageComponentCollector({ cfilter, time: 60000 });
+      ccollector.on('collect', async (interaction) => {
+        
+            if (interaction.customId === 'hardPL' || interaction.customId === 'hardEG') {
+                const newEmbed = new EmbedBuilder()
+                    .setColor('#ff0000')
+                    .setTitle('Error [PVE]')
+                    .setDescription('You can\'t invade on this difficulty, try again on a lower difficulty.')
+                    .setTimestamp();
+    
+                await interaction.update({ embeds: [newEmbed], components: [] });
+            } else if (interaction.customId === 'easyPL') {
+                const newEmbed = new EmbedBuilder()
+                    .setColor('#ff0000')
+                    .setTitle('Poland Invasion [Easy]')
+                    .setDescription('Pls provide code of card that will invade Poland');
+    
+                await interaction.update({ embeds: [newEmbed], components: [] });
+            } else if (interaction.customId === 'easyEG') {
+                const newEmbed = new EmbedBuilder()
+                    .setColor('#ff0000')
+                    .setTitle('Egypt Invasion [Easy]')
+                    .setDescription('Pls provide code of card that will invade Egypt');
+
+                await interaction.update({ embeds: [newEmbed], components: [] });
+            }
+            
+      
+    });
+    
+    
+    });
+
+     codeFilter = (m) => m.author.id === userId; 
+    const codeCollector = msg.channel.createMessageCollector({ codeFilter, time: 15000 });
+    codeCollector.on('collect', async (m) => {
+
+
+      const userId = msg.author.id;
+      const cardCode = m.content;
+      console.log(cardCode);
+      console.log(userId);
+      
+      try {
+        // Query to find the card associated with the user
+        const results = await connection.promise().query('SELECT card_name, card_code FROM card_inventory WHERE user_id = ? AND card_code = ?', [userId, cardCode]);
+    
+        // Check if results contain any rows
+        if (results[0].length > 0) {
+            //m.reply(`You have chosen to invade Poland with card ${results[0][0].card_name}.`);
+
+            const newEmbed = new EmbedBuilder()
+                    .setColor('#ff0000')
+                    .setTitle('⚔️Invasion started')
+                    .setDescription(`${results[0][0].card_name} has been sent to War!\nYou can't use this card for next 24 hours!`)
+                    .setTimestamp();
+    
+                await m.reply({ embeds: [newEmbed], components: [] });
+            codeCollector.stop();
+        } else {
+            return
+        }
+    } catch (error) {
+        console.error('Error fetching card from database:', error);
+    }
+    
+    
+    codeCollector.on('end', collected => {
+      if (collected.size > 0) {
+          console.log(`Collected ${collected.size} message(s).`);
+      } else {
+          console.log('No messages collected.');
       }
-
-      const newFrameId = frameResults[0].frame_id;
-
-      // Update the card's frame_id in the card_inventory table
-      const updateFrameQuery = 'UPDATE card_inventory SET frame_id = ? WHERE card_code = ?';
-      connection.query(updateFrameQuery, [newFrameId, cardCode], (updateErr) => {
-          if (updateErr) {
-              console.error('Error updating frame in database:', updateErr.message);
-              msg.reply('Error updating the card frame.');
-          } else {
-              msg.reply(`Card frame updated to ${newFrameName}.`);
-          }
-      });
   });
-  }
+    
 
+
+    })
+  
+      collector.on('end', () => {
+      // disable buttons after timeout
+      message.edit({ components: [] });
+    });
+  }
 
 
 });
@@ -1512,6 +1836,7 @@ function changeCardFrameColor(hexCode, cardCode) {
     });
 }
 
+/////////////////////
 // Function to fetch user color codes from MySQL database
 function getUserColorCodes(userId) {
     return new Promise((resolve, reject) => {
@@ -1595,7 +1920,7 @@ async function getUserColor(userId) {
   });
 }
 
-/*async function getUserColorCodes(userId) {
+async function getUserColorCodes(userId) {
   return new Promise((resolve, reject) => {
       const query = 'SELECT color FROM user_colors WHERE user_id = ?';
       connection.query(query, [userId], function(error, results, fields) {
@@ -1608,183 +1933,10 @@ async function getUserColor(userId) {
           resolve(colorCodes);
       });
   });
-}*/
-
-
-// Interaction event
-/*client.on('interactionCreate', async (interaction) => {
-  const userId = interaction.user.id;
-
-  if (interaction.customId === 'cancel') {
-      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
-      await interaction.deferUpdate();
-
-      const isMod = await isModerator(userId);
-      if (!isMod) {
-          return interaction.reply({
-              content: 'You do not have permission to perform this action.',
-              ephemeral: true,
-          });
-      }
-
-      const serverChannelId1 = '1203803520998969344';
-      const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
-
-      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
-      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
-          if (err) {
-              console.error('Error fetching user data from the database:', err.message);
-              return;
-          }
-
-          if (results.length === 0) {
-              return interaction.followUp('No data found for the specified message.');
-          }
-
-          const data = results[0];
-          const { usertag, card_name, user_id } = data;
-
-          const replyContent = `<@${user_id}> your card description has been declined by a moderator. Make sure your description follows the rules! If the description is inaccurate, contains offensive language, or is too long, it will be declined. Thank you and good luck next time!`;
-          return await serverChannel1.send(replyContent);
-      });
-  } else if (interaction.customId === 'confirm') {
-      const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
-      await interaction.deferUpdate();
-
-      const isMod = await isModerator(userId);
-      if (!isMod) {
-          return interaction.reply({
-              content: 'You do not have permission to perform this action.',
-              ephemeral: true,
-          });
-      }
-
-      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
-      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
-          if (err) {
-              console.error('Error fetching user data from the database:', err.message);
-              return;
-          }
-
-          if (results.length === 0) {
-              return interaction.followUp({
-                  content: 'No data found for the specified message.',
-                  ephemeral: true
-              });
-          }
-
-          const data = results[0];
-          const { usertag, card_name, user_id, series } = data;
-
-          const imageUrlsPath = 'imageUrls.json';
-          let imageUrlsData = JSON.parse(fs.readFileSync(imageUrlsPath, 'utf8'));
-
-          const compareIgnoreCase = (str1, str2) => str1.localeCompare(str2, undefined, { sensitivity: 'base' });
-
-          const serverChannelId1 = '1203803520998969344';
-          const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
-
-          const replyContent = `<@${user_id}> your card description has been accepted by a moderator. Congrats, you are now part of this project! Thank you!`;
-          await serverChannel1.send(replyContent);
-      });
-  }
-});*/
-
-/*client.on('interactionCreate', async (interaction) => {
-  const userId = interaction.user.id;
-
-  if (interaction.customId === 'cancel') {
-      await interaction.deferUpdate();
-      const isMod = await isModerator(userId);
-      if (!isMod) {
-          return interaction.reply({
-              content: 'You do not have permission to perform this action.',
-              ephemeral: true,
-          });
-      }
-
-      const descriptionField = interaction.message.embeds[0].fields.find(field => field.name === 'Description');
-      const userField = interaction.message.embeds[0].fields.find(field => field.name === 'Submitted by'); // Poprawione na 'Submitted by'
-
-      if (!descriptionField || !userField) {
-          return interaction.followUp('Error: Description or User field not found in the embed.');
-      }
-
-      const descriptionValue = descriptionField.value;
-      const userIdFromEmbed = userField.value.match(/\d+/)[0]; // Extract user ID
-      const fetchDataQuery = 'SELECT * FROM user_data WHERE description = ?';
-      
-      connection.query(fetchDataQuery, [descriptionValue], async (err, results) => {
-          if (err) {
-              console.error('Error fetching user data from the database:', err.message);
-              return;
-          }
-
-          if (results.length === 0) {
-              return interaction.followUp('No data found for the specified message.');
-          }
-
-          const data = results[0];
-          const { user_id } = data;
-
-          const replyContent = `<@${user_id}> your card description has been declined by a moderator. Make sure your description follows the rules!`;
-          const serverChannelId1 = '1203803520998969344';
-          const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
-          await serverChannel1.send(replyContent);
-      });
-  } else if (interaction.customId === 'confirm') {
-    await interaction.deferUpdate();
-    const isMod = await isModerator(userId);
-    if (!isMod) {
-        return interaction.reply({
-            content: 'You do not have permission to perform this action.',
-            ephemeral: true,
-        });
-    }
-
-    const cardNameField = interaction.message.embeds[0].fields.find(field => field.name === 'Card Name'); // Poprawione na 'Card Name'
-
-    if (!cardNameField) {
-        return interaction.followUp('Error: Card Name field not found in the embed.');
-    }
-
-    const cardName = cardNameField.value;
-    const userIdFromEmbed = interaction.message.embeds[0].fields.find(field => field.name === 'Submitted by').value.match(/\d+/)[0]; // Extract user ID
-    const descriptionValue = interaction.message.embeds[0].fields.find(field => field.name === 'Description').value;
-
-    const serverChannelId1 = '1203803520998969344';
-    const serverChannel1 = interaction.guild.channels.cache.get(serverChannelId1);
-
-    // Prepare the SQL query to fetch card information by name
-    const fetchDataQuery = 'SELECT * FROM card_info WHERE card_name REGEXP ?';
-    const regexPattern = `^${cardName}$`; // Regex to match the name exactly, case-insensitively
-
-    connection.query(fetchDataQuery, [regexPattern], async (err, results) => {
-        if (err) {
-            console.error('Error fetching card info:', err.message);
-            return interaction.followUp('An error occurred while fetching card information.');
-        }
-
-        if (results.length === 0) {
-            return interaction.followUp('No matching card found to update.');
-        }
-
-        // Assuming results[0] contains the relevant card data
-        const cardData = results[0];
-
-        // Insert the card name and description into card_data
-        const insertCardDataQuery = 'INSERT INTO card_data (user_id, channel_id, card_name, usertag, description) VALUES (?, ?, ?, ?, ?)';
-        await connection.execute(insertCardDataQuery, [userIdFromEmbed, channel_.id, cardData.card_name, `<@${userIdFromEmbed}>`, descriptionValue]);
-
-        const replyContent = `<@${userId}> your card description has been approved by a moderator.`;
-        await serverChannel1.send(replyContent);
-        return interaction.followUp('The card description has been approved and updated.');
-    });
 }
 
 
-
-});*/
+// Interaction event
 client.on('interactionCreate', async (interaction) => {
   const userId = interaction.user.id;
 
@@ -1863,19 +2015,8 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-
-// Function to start a new session for a user
-const startSession = (userId) => {
-  userSessions.set(userId, true);
-};
-
-// Function to check if a user has an active session
-const hasActiveSession = (userId) => {
-  return userSessions.has(userId);
-};
-
 // Function to check if a user is a moderator
-/*function isModerator(userId) {
+function isModerator(userId) {
   const moderatorsFilePath = './moderators.json';
 
   // Check if the moderators.json file exists
@@ -1889,11 +2030,6 @@ const hasActiveSession = (userId) => {
 
   // Check if the user is a moderator
   return moderatorsData.some((moderator) => moderator.id === userId);
-}*/
-
-
-function isModerator(userId) {
-  return moderators.some(mod => mod.id === userId);
 }
 
 function generateSpecialAbility(element, baseElement) {
@@ -1912,940 +2048,581 @@ function generateSpecialAbility(element, baseElement) {
   };
 
   const abilities = {
+    // 1-5
     [`${emojiMap.fire}_${emojiMap.earth}`]: { 
       name: 'Cinderclad Rupture', 
-      description: `Summons a localized 
-      volcanic fissure beneath a targeted 
-      enemy, dealing a moderate 70% hybrid 
-      damage of ${emojiMap.earth} or 
-      ${emojiMap.fire}. Has a 90% chance 
-      of creating a "Smouldering" debuff, 
-      which persists for 2 turns, 
-      causing 10% DOT ${emojiMap.fire} 
-      damage to the enemy for 1 turn.`  
-  },
-  [`${emojiMap.earth}_${emojiMap.fire}`]: { 
+      description: `Abilities descriptions not added yet`  
+    },
+    [`${emojiMap.earth}_${emojiMap.fire}`]: { 
       name: 'Cinderclad Rupture', 
-      description: `Summons a localized 
-      volcanic fissure beneath a targeted 
-      enemy, dealing a moderate 70% hybrid 
-      damage of ${emojiMap.earth} or 
-      ${emojiMap.fire}. Has a 90% chance 
-      of creating a "Smouldering" debuff, 
-      which persists for 2 turns, 
-      causing 10% DOT ${emojiMap.fire} 
-      damage to the enemy for 1 turn.` 
-  },
-  
-  [`${emojiMap.fire}_${emojiMap.water}`]: { 
-      name: 'Mistral Confluence', 
-      description: `Weaves a plume 
-      of steam directed at a single enemy, 
-      dealing 80% hybrid damage upon impact. 
-      Has a 90% chance of causing a 
-      "Blurred Haze" status effect, 
-      which decreases the target's 
-      damage by 10% for their next turn.` 
+      description: `Abilities descriptions not added yet` 
     },
-  [`${emojiMap.water}_${emojiMap.fire}`]: { 
+    
+    [`${emojiMap.fire}_${emojiMap.water}`]: { 
       name: 'Mistral Confluence', 
-      description: `Weaves a plume 
-      of steam directed at a single enemy, 
-      dealing 80% hybrid damage upon impact. 
-      Has a 90% chance of causing a 
-      "Blurred Haze" status effect, 
-      which decreases the target's 
-      damage by 10% for their next turn.` 
-  },
-  
-  [`${emojiMap.fire}_${emojiMap.metal}`]: { 
-      name: 'Ferric Blaze', 
-      description: `Hurls a molten metal 
-      shard at a single target, dealing 
-      precise 65% hybrid damage. Has an 
-      85% chance to embed metal poison 
-      in the target, reducing their 
-      defense by 5% and causing a 
-      "Metallic Sear" for 2 turns, 
-      inflicting 5% DOT ${emojiMap.metal} 
-      damage each turn.` 
-  },
-  [`${emojiMap.metal}_${emojiMap.fire}`]: { 
-      name: 'Ferric Blaze', 
-      description: `Hurls a molten metal 
-      shard at a single target, dealing 
-      precise 65% hybrid damage. Has an 
-      85% chance to embed metal poison 
-      in the target, reducing their 
-      defense by 5% and causing a 
-      "Metallic Sear" for 2 turns, 
-      inflicting 5% DOT ${emojiMap.metal} 
-      damage each turn.` 
-  },
-  
-  [`${emojiMap.fire}_${emojiMap.electricity}`]: { 
-      name: 'Electric Inferno', 
-      description: `Unleashes a surge 
-      of electrical fire, engulfing 
-      the target in a blaze of ${emojiMap.fire} 
-      and ${emojiMap.electricity}. Deals 75% 
-      hybrid damage and has a 80% chance to 
-      paralyze the enemy for 1 turn.` 
+      description: `Abilities descriptions not added yet` 
     },
-  [`${emojiMap.electricity}_${emojiMap.fire}`]: { 
+    [`${emojiMap.water}_${emojiMap.fire}`]: { 
+      name: 'Mistral Confluence', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.fire}_${emojiMap.metal}`]: { 
+      name: 'Ferric Blaze', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    // 6-10
+    [`${emojiMap.metal}_${emojiMap.fire}`]: { 
+      name: 'Ferric Blaze', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.fire}_${emojiMap.electricity}`]: { 
       name: 'Electric Inferno', 
-      description: `Unleashes a surge 
-      of electrical fire, engulfing 
-      the target in a blaze of ${emojiMap.fire} 
-      and ${emojiMap.electricity}. Deals 75% 
-      hybrid damage and has a 80% chance to 
-      paralyze the enemy for 1 turn.` 
-  },
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.electricity}_${emojiMap.fire}`]: { 
+      name: 'Electric Inferno', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.fire}_${emojiMap.wind}`]: { 
+      name: 'Blazing Gale', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.wind}_${emojiMap.fire}`]: { 
+      name: 'Blazing Gale', 
+      description: `Abilities descriptions not added yet` 
+    },
   
-  [`${emojiMap.fire}_${emojiMap.wind}`]: { 
-      name: 'Blazing Gale', 
-      description: `Ignites the air 
-      with fierce winds and flames, 
-      striking the enemy with a 
-      combination of ${emojiMap.fire} 
-      and ${emojiMap.wind} power. 
-      Inflicts 85% hybrid damage and 
-      has a 70% chance to disorient the 
-      enemy, causing them to miss their 
-      next turn.` 
-  },
-  [`${emojiMap.wind}_${emojiMap.fire}`]: { 
-      name: 'Blazing Gale', 
-      description: `Ignites the air 
-      with fierce winds and flames, 
-      striking the enemy with a 
-      combination of ${emojiMap.fire} 
-      and ${emojiMap.wind} power. 
-      Inflicts 85% hybrid damage and 
-      has a 70% chance to disorient the 
-      enemy, causing them to miss their 
-      next turn.` 
-  },
-  //5
-  [`${emojiMap.fire}_${emojiMap.overpowered}`]: { 
-    name: 'Overcharged Inferno', 
-    description: `Channels overwhelming 
-    energy into a blazing inferno, 
-    creating an ${emojiMap.overpowered} explosion 
-    of ${emojiMap.fire} power. Deals 100% 
-    hybrid damage to all enemies and has 
-    a 50% chance to inflict Burnout, causing 
-    15% DOT ${emojiMap.fire} damage for 2 turns.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.fire}`]: { 
-    name: 'Overcharged Inferno', 
-    description: `Channels overwhelming 
-    energy into a blazing inferno, 
-    creating an ${emojiMap.overpowered} explosion 
-    of ${emojiMap.fire} power. Deals 100% 
-    hybrid damage to all enemies and has 
-    a 50% chance to inflict Burnout, causing 
-    15% DOT ${emojiMap.fire} damage for 2 turns.` 
-},
-
-[`${emojiMap.earth}_${emojiMap.water}`]: { 
-    name: 'Mudslide', 
-    description: `Generates a torrent 
-    of mud at a target location within 
-    a 2-block radius, ensnaring enemies with 
-    90% hybrid damage. The thick sludge slows 
-    down the enemy movement by 20% for the 
-    next turn.` 
-  },
-[`${emojiMap.water}_${emojiMap.earth}`]: { 
-    name: 'Mudslide', 
-    description: `Generates a torrent 
-    of mud at a target location within 
-    a 2-block radius, ensnaring enemies with 
-    90% hybrid damage. The thick sludge slows 
-    down the enemy movement by 20% for the 
-    next turn.` 
-},
-
-[`${emojiMap.earth}_${emojiMap.metal}`]: { 
-    name: 'Sharp Pebble', 
-    description: `Targets 2 block enemies, 
-    causing a 50% hybrid damage. Has a 100% 
-    chance to stun enemies for 2 turns.` 
-  },
-[`${emojiMap.metal}_${emojiMap.earth}`]: { 
-    name: 'Sharp Pebble', 
-    description: `Targets 2 block enemies, 
-    causing a 50% hybrid damage. Has a 100% 
-    chance to stun enemies for 2 turns.` 
-},
-
-[`${emojiMap.earth}_${emojiMap.electricity}`]: { 
-    name: 'Electrified Terrain', 
-    description: `Electrifies the earth, 
-    shocking enemies with a jolt of 
-    ${emojiMap.electricity}. Deals 80% 
-    hybrid damage and has a 90% chance 
-    to inflict Paralysis, preventing the 
-    enemy from taking action for 1 turn.` 
-  },
-[`${emojiMap.electricity}_${emojiMap.earth}`]: { 
-    name: 'Electrified Terrain', 
-    description: `Electrifies the earth, 
-    shocking enemies with a jolt of 
-    ${emojiMap.electricity}. Deals 80% 
-    hybrid damage and has a 90% chance 
-    to inflict Paralysis, preventing the 
-    enemy from taking action for 1 turn.` 
-},
-
-[`${emojiMap.earth}_${emojiMap.wind}`]: { 
-    name: 'Turbulent Tremor', 
-    description: `Creates seismic 
-    waves infused with ${emojiMap.earth}
-    and ${emojiMap.wind} power, 
-    striking the enemy with 75% hybrid 
-    damage. Has a 75% chance to disrupt 
-    the enemy's balance, causing them 
-    to lose 10% accuracy for 2 turns.` 
-  },
-[`${emojiMap.wind}_${emojiMap.earth}`]: { 
-    name: 'Turbulent Tremor', 
-    description: `Creates seismic 
-    waves infused with ${emojiMap.earth}
-    and ${emojiMap.wind} power, 
-    striking the enemy with 75% hybrid 
-    damage. Has a 75% chance to disrupt 
-    the enemy's balance, causing them 
-    to lose 10% accuracy for 2 turns.` 
-},
-//10
-[`${emojiMap.earth}_${emojiMap.overpowered}`]: { 
-  name: 'Overwhelming Quake', 
-  description: `Unleashes an 
-  ${emojiMap.overpowered} earthquake 
-  of tremendous power, dealing 110% 
-  hybrid damage to all enemies. Has a 
-  50% chance to inflict Tremors, 
-  reducing the enemy's defense by 
-  20% for 2 turns.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.earth}`]: { 
-  name: 'Overwhelming Quake', 
-  description: `Unleashes an 
-  ${emojiMap.overpowered} earthquake 
-  of tremendous power, dealing 110% 
-  hybrid damage to all enemies. Has a 
-  50% chance to inflict Tremors, 
-  reducing the enemy's defense by 
-  20% for 2 turns.` 
-},
-
-[`${emojiMap.water}_${emojiMap.metal}`]: { 
-  name: 'Razor Torrent', 
-  description: `Sends forth a jet 
-  of water at high velocity towards 
-  a single enemy, inflicting 85% 
-  hybrid damage. Decreases the target's 
-  defense by 8% for 3 turns.` 
-},
-[`${emojiMap.metal}_${emojiMap.water}`]: { 
-  name: 'Razor Torrent', 
-  description: `Sends forth a jet 
-  of water at high velocity towards 
-  a single enemy, inflicting 85% 
-  hybrid damage. Decreases the target's 
-  defense by 8% for 3 turns.` 
-},
-
-[`${emojiMap.water}_${emojiMap.electricity}`]: { 
-  name: 'Shockwave Surge', 
-  description: `Creates a surge of 
-  electrified water, shocking enemies 
-  with ${emojiMap.electricity} and 
-  ${emojiMap.water} power. Deals 90% 
-  hybrid damage and has a 80% chance 
-  to cause Short Circuit, disabling 
-  the enemy's special abilities 
-  for 2 turns.` 
-},
-[`${emojiMap.electricity}_${emojiMap.water}`]: { 
-  name: 'Shockwave Surge', 
-  description: `Creates a surge of 
-  electrified water, shocking enemies 
-  with ${emojiMap.electricity} and 
-  ${emojiMap.water} power. Deals 90% 
-  hybrid damage and has a 80% chance 
-  to cause Short Circuit, disabling 
-  the enemy's special abilities 
-  for 2 turns.` 
-},
-
-[`${emojiMap.water}_${emojiMap.wind}`]: { 
-  name: 'Tempest Tide', 
-  description: `Summons a powerful 
-  tidal wave infused with ${emojiMap.wind} 
-  and ${emojiMap.water}, crashing upon 
-  enemies with 95% hybrid damage. 
-  Has a 70% chance to inflict Drenched 
-  status, reducing the enemy's speed 
-  by 15% for 2 turns.` 
-},
-[`${emojiMap.wind}_${emojiMap.water}`]: { 
-  name: 'Tempest Tide', 
-  description: `Summons a powerful 
-  tidal wave infused with ${emojiMap.wind} 
-  and ${emojiMap.water}, crashing upon 
-  enemies with 95% hybrid damage. 
-  Has a 70% chance to inflict Drenched 
-  status, reducing the enemy's speed 
-  by 15% for 2 turns.` 
-},
-
-[`${emojiMap.water}_${emojiMap.overpowered}`]: { 
-  name: 'Overwhelming Deluge', 
-  description: `Unleashes an ${emojiMap.overpowered} 
-  deluge of water, flooding the battlefield 
-  and dealing 120% hybrid damage to all 
-  enemies. Has a 50% chance to cause Soaked 
-  status, making enemies vulnerable to 
-  electric attacks for 2 turns.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.water}`]: { 
-  name: 'Overwhelming Deluge', 
-  description: `Unleashes an ${emojiMap.overpowered} 
-  deluge of water, flooding the battlefield 
-  and dealing 120% hybrid damage to all 
-  enemies. Has a 50% chance to cause Soaked 
-  status, making enemies vulnerable to 
-  electric attacks for 2 turns.` 
-},
-//15
-[`${emojiMap.metal}_${emojiMap.electricity}`]: { 
-  name: 'Conductive Shock', 
-  description: `Channels electricity 
-  through metallic objects, shocking 
-  enemies with ${emojiMap.electricity} 
-  and ${emojiMap.metal} power. Deals 
-  95% hybrid damage and has a 80% 
-  chance to inflict Conductive Discharge, 
-  causing 12% DOT ${emojiMap.electricity} 
-  damage for 2 turns.` 
-},
-[`${emojiMap.electricity}_${emojiMap.metal}`]: { 
-  name: 'Conductive Shock', 
-  description: `Channels electricity 
-  through metallic objects, shocking 
-  enemies with ${emojiMap.electricity} 
-  and ${emojiMap.metal} power. Deals 
-  95% hybrid damage and has a 80% 
-  chance to inflict Conductive Discharge, 
-  causing 12% DOT ${emojiMap.electricity} 
-  damage for 2 turns.` 
-},
-
-[`${emojiMap.metal}_${emojiMap.wind}`]: { 
-  name: 'Cyclonic Shrapnel', 
-  description: `Launches razor-sharp 
-  metal fragments infused with 
-  ${emojiMap.wind}, dealing 90% 
-  hybrid damage to all enemies. 
-  Has a 70% chance to inflict 
-  Bleeding Wounds, causing 10% 
-  DOT ${emojiMap.metal} damage 
-  for 3 turns.` 
-},
-[`${emojiMap.wind}_${emojiMap.metal}`]: { 
-  name: 'Cyclonic Shrapnel', 
-  description: `Launches razor-sharp 
-  metal fragments infused with 
-  ${emojiMap.wind}, dealing 90% 
-  hybrid damage to all enemies. 
-  Has a 70% chance to inflict 
-  Bleeding Wounds, causing 10% 
-  DOT ${emojiMap.metal} damage 
-  for 3 turns.` 
-},
-
-[`${emojiMap.metal}_${emojiMap.overpowered}`]: { 
-  name: 'Overcharged Shrapnel', 
-  description: `Unleashes an 
-  ${emojiMap.overpowered} explosion 
-  of metal shards, shredding enemies 
-  with 130% hybrid damage. Has a 50% 
-  chance to inflict Shrapnel Scatter, 
-  reducing the enemy's accuracy by 25% 
-  for 2 turns.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.metal}`]: { 
-  name: 'Overcharged Shrapnel', 
-  description: `Unleashes an 
-  ${emojiMap.overpowered} explosion 
-  of metal shards, shredding enemies 
-  with 130% hybrid damage. Has a 50% 
-  chance to inflict Shrapnel Scatter, 
-  reducing the enemy's accuracy by 25% 
-  for 2 turns.` 
-},
-
-[`${emojiMap.electricity}_${emojiMap.wind}`]: { 
-  name: 'Static Cyclone', 
-  description: `Creates a whirlwind 
-  charged with electricity and wind, 
-  striking enemies with 100% hybrid 
-  damage. Has a 80% chance to cause 
-  Disruption, preventing enemies from 
-  using abilities for 1 turn.` 
-},
-[`${emojiMap.wind}_${emojiMap.electricity}`]: { 
-  name: 'Static Cyclone', 
-  description: `Creates a whirlwind 
-  charged with electricity and wind, 
-  striking enemies with 100% hybrid 
-  damage. Has a 80% chance to cause 
-  Disruption, preventing enemies from 
-  using abilities for 1 turn.` 
-},
-
-[`${emojiMap.electricity}_${emojiMap.overpowered}`]: { 
-  name: 'Overcharged Storm', 
-  description: `Summons an 
-  ${emojiMap.overpowered} storm 
-  of immense power, striking all 
-  enemies with lightning bolts 
-  and gusts of wind, dealing 140% 
-  hybrid damage. Has a 50% chance 
-  to inflict Electric Shock, 
-  causing 15% DOT ${emojiMap.electricity} 
-  damage for 2 turns.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.electricity}`]: { 
-  name: 'Overcharged Storm', 
-  description: `Summons an 
-  ${emojiMap.overpowered} storm 
-  of immense power, striking all 
-  enemies with lightning bolts 
-  and gusts of wind, dealing 140% 
-  hybrid damage. Has a 50% chance 
-  to inflict Electric Shock, 
-  causing 15% DOT ${emojiMap.electricity} 
-  damage for 2 turns.` 
-},
-//20
-[`${emojiMap.wind}_${emojiMap.overpowered}`]: { 
-  name: 'Overwhelming Gust', 
-  description: `Summons an 
-  ${emojiMap.overpowered} gust 
-  of wind, sweeping enemies off 
-  their feet and dealing 150% 
-  hybrid damage. Has a 50% chance 
-  to inflict Disarray, causing 
-  confusion and making enemies 
-  randomly target allies 
-  for 2 turns.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.wind}`]: { 
-  name: 'Overwhelming Gust', 
-  description: `Summons an 
-  ${emojiMap.overpowered} gust 
-  of wind, sweeping enemies off 
-  their feet and dealing 150% 
-  hybrid damage. Has a 50% chance 
-  to inflict Disarray, causing 
-  confusion and making enemies 
-  randomly target allies 
-  for 2 turns.` 
-},
-
-[`${emojiMap.dark}_${emojiMap.light}`]: { 
-  name: 'Eclipse', 
-  description: `Plunges the 
-  battlefield into darkness, 
-  followed by a blinding flash 
-  of light, dealing 120% hybrid 
-  damage. Has a 50% chance to 
-  inflict Blindness, reducing 
-  the enemy's accuracy by 20% 
-  for 2 turns.` 
-},
-[`${emojiMap.light}_${emojiMap.dark}`]: { 
-  name: 'Eclipse', 
-  description: `Plunges the 
-  battlefield into darkness, 
-  followed by a blinding flash 
-  of light, dealing 120% hybrid 
-  damage. Has a 50% chance to 
-  inflict Blindness, reducing 
-  the enemy's accuracy by 20% 
-  for 2 turns.` 
-},
-
-[`${emojiMap.dark}_${emojiMap.overpowered}`]: { 
-  name: 'Overwhelming Void', 
-  description: `Unleashes an 
-  ${emojiMap.overpowered} void of 
-  darkness, engulfing enemies and 
-  dealing 130% hybrid damage. 
-  Has a 50% chance to inflict 
-  Void Corruption, preventing 
-  enemies from receiving healing 
-  for 2 turns.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.dark}`]: { 
-  name: 'Overwhelming Void', 
-  description: `Unleashes an 
-  ${emojiMap.overpowered} void of 
-  darkness, engulfing enemies and 
-  dealing 130% hybrid damage. 
-  Has a 50% chance to inflict 
-  Void Corruption, preventing 
-  enemies from receiving healing 
-  for 2 turns.` 
-},
-
-[`${emojiMap.light}_${emojiMap.overpowered}`]: { 
-  name: 'Overwhelming Radiance', 
-  description: `Radiates an 
-  ${emojiMap.overpowered} aura of 
-  blinding light, purging enemies 
-  with divine energy and dealing 
-  140% hybrid damage. Has a 50% 
-  chance to inflict Radiant Cleansing, 
-  removing all buffs from enemies.` 
-},
-[`${emojiMap.overpowered}_${emojiMap.light}`]: { 
-  name: 'Overwhelming Radiance', 
-  description: `Radiates an 
-  ${emojiMap.overpowered} aura of 
-  blinding light, purging enemies 
-  with divine energy and dealing 
-  140% hybrid damage. Has a 50% 
-  chance to inflict Radiant Cleansing, 
-  removing all buffs from enemies.` 
-},
-
-[`${emojiMap.fire}_${emojiMap.fighting}`]: { 
-  name: 'Blaze Combo', 
-  description: `Unleashes a flurry 
-  of fiery punches and kicks, dealing 
-  80% hybrid damage. Has a 75% chance 
-  to cause "Flame Fury", increasing 
-  damage dealt by 15% for the next turn.` 
-},
-[`${emojiMap.fighting}_${emojiMap.fire}`]: { 
-  name: 'Blaze Combo', 
-  description: `Unleashes a flurry 
-  of fiery punches and kicks, dealing 
-  80% hybrid damage. Has a 75% chance 
-  to cause "Flame Fury", increasing 
-  damage dealt by 15% for the next turn.` 
-},
-//25
-[`${emojiMap.water}_${emojiMap.fighting}`]: { 
-  name: 'Aqua Barrage', 
-  description: `Unleashes a rapid 
-  barrage of water-infused strikes, 
-  dealing 85% hybrid damage. Has a 
-  70% chance to cause "Hydro Surge", 
-  decreasing enemy speed by 15% for 
-  2 turns.` 
-},
-[`${emojiMap.fighting}_${emojiMap.water}`]: { 
-  name: 'Aqua Barrage', 
-  description: `Unleashes a rapid 
-  barrage of water-infused strikes, 
-  dealing 85% hybrid damage. Has a 
-  70% chance to cause "Hydro Surge", 
-  decreasing enemy speed by 15% for 
-  2 turns.` 
-},
-
-[`${emojiMap.wind}_${emojiMap.fighting}`]: { 
-  name: 'Tempest Strike', 
-  description: `Executes a swift and 
-  powerful strike imbued with the force 
-  of wind, dealing 85% hybrid damage. 
-  Has a 70% chance to cause "Aero Impact", 
-  knocking the enemy back one tile.` 
-},
-[`${emojiMap.fighting}_${emojiMap.wind}`]: { 
-  name: 'Tempest Strike', 
-  description: `Executes a swift and 
-  powerful strike imbued with the force 
-  of wind, dealing 85% hybrid damage. 
-  Has a 70% chance to cause "Aero Impact", 
-  knocking the enemy back one tile.` 
-},
-
-[`${emojiMap.earth}_${emojiMap.fighting}`]: { 
-  name: 'Tectonic Uppercut', 
-  description: `Delivers a powerful 
-  uppercut infused with earth energy, 
-  dealing 90% hybrid damage. Has a 70% 
-  chance to cause "Quake Impact", 
-  stunning the enemy for 1 turn.` 
-},
-[`${emojiMap.fighting}_${emojiMap.earth}`]: { 
-  name: 'Tectonic Uppercut', 
-  description: `Delivers a powerful 
-  uppercut infused with earth energy, 
-  dealing 90% hybrid damage. Has a 70% 
-  chance to cause "Quake Impact", 
-  stunning the enemy for 1 turn.` 
-},
-
-[`${emojiMap.electricity}_${emojiMap.fighting}`]: { 
-  name: 'Thunderous Punch', 
-  description: `Delivers a 
-  lightning-charged punch, shocking 
-  the enemy with 85% hybrid damage. 
-  Has a 70% chance to cause 
-  "Electro Impact", paralyzing 
-  the enemy for 1 turn.`  
-},
-[`${emojiMap.fighting}_${emojiMap.electricity}`]: { 
-  name: 'Thunderous Punch', 
-  description: `Delivers a 
-  lightning-charged punch, shocking 
-  the enemy with 85% hybrid damage. 
-  Has a 70% chance to cause 
-  "Electro Impact", paralyzing 
-  the enemy for 1 turn.` 
-},
-
-[`${emojiMap.dark}_${emojiMap.fighting}`]: { 
-  name: 'Shadow Strike', 
-  description: `Engages in shadowy 
-  combat techniques, dealing 80% 
-  hybrid damage. Has a 75% chance 
-  to cause "Dark Impact", reducing e
-  nemy accuracy by 15% for 1 turn.` 
-},
-[`${emojiMap.fighting}_${emojiMap.dark}`]: { 
-  name: 'Shadow Strike', 
-  description: `Engages in shadowy 
-  combat techniques, dealing 80% 
-  hybrid damage. Has a 75% chance 
-  to cause "Dark Impact", reducing e
-  nemy accuracy by 15% for 1 turn.` 
-},
-//30
+    // 11-15
+    [`${emojiMap.fire}_${emojiMap.overpowered}`]: { 
+      name: 'Overcharged Inferno', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.overpowered}_${emojiMap.fire}`]: { 
+      name: 'Overcharged Inferno', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.earth}_${emojiMap.water}`]: { 
+      name: 'Mudslide', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.water}_${emojiMap.earth}`]: { 
+      name: 'Mudslide', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.earth}_${emojiMap.metal}`]: { 
+      name: 'Sharp Pebble', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    // 16-20
+    [`${emojiMap.metal}_${emojiMap.earth}`]: { 
+      name: 'Sharp Pebble', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.earth}_${emojiMap.electricity}`]: { 
+      name: 'Electrified Terrain', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.electricity}_${emojiMap.earth}`]: { 
+      name: 'Electrified Terrain', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.earth}_${emojiMap.wind}`]: { 
+      name: 'Turbulent Tremor', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.wind}_${emojiMap.earth}`]: { 
+      name: 'Turbulent Tremor', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 21-25
+    [`${emojiMap.earth}_${emojiMap.overpowered}`]: { 
+      name: 'Overwhelming Quake', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.overpowered}_${emojiMap.earth}`]: { 
+      name: 'Overwhelming Quake', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.water}_${emojiMap.metal}`]: { 
+      name: 'Razor Torrent', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.metal}_${emojiMap.water}`]: { 
+      name: 'Razor Torrent', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.water}_${emojiMap.electricity}`]: { 
+      name: 'Shockwave Surge', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    // 26-30
+    [`${emojiMap.electricity}_${emojiMap.water}`]: { 
+      name: 'Shockwave Surge', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.water}_${emojiMap.wind}`]: { 
+      name: 'Tempest Tide', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.wind}_${emojiMap.water}`]: { 
+      name: 'Tempest Tide', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.water}_${emojiMap.overpowered}`]: { 
+      name: 'Overwhelming Deluge', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.overpowered}_${emojiMap.water}`]: { 
+      name: 'Overwhelming Deluge', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 31-35
+    [`${emojiMap.metal}_${emojiMap.electricity}`]: { 
+      name: 'Conductive Shock', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.electricity}_${emojiMap.metal}`]: { 
+      name: 'Conductive Shock', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.metal}_${emojiMap.wind}`]: { 
+      name: 'Cyclonic Shrapnel', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.wind}_${emojiMap.metal}`]: { 
+      name: 'Cyclonic Shrapnel', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.metal}_${emojiMap.overpowered}`]: { 
+      name: 'Overcharged Shrapnel', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 36-40
+    [`${emojiMap.overpowered}_${emojiMap.metal}`]: { 
+      name: 'Overcharged Shrapnel', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.electricity}_${emojiMap.wind}`]: { 
+      name: 'Static Cyclone', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.wind}_${emojiMap.electricity}`]: { 
+      name: 'Static Cyclone', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.electricity}_${emojiMap.overpowered}`]: { 
+      name: 'Overcharged Storm', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.overpowered}_${emojiMap.electricity}`]: { 
+      name: 'Overcharged Storm', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 41-45
+    [`${emojiMap.wind}_${emojiMap.overpowered}`]: { 
+      name: 'Overwhelming Gust', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.overpowered}_${emojiMap.wind}`]: { 
+      name: 'Overwhelming Gust', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.dark}_${emojiMap.light}`]: { 
+      name: 'Eclipse', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.light}_${emojiMap.dark}`]: { 
+      name: 'Eclipse', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.dark}_${emojiMap.overpowered}`]: { 
+      name: 'Overwhelming Void', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 46-50
+    [`${emojiMap.overpowered}_${emojiMap.dark}`]: { 
+      name: 'Overwhelming Void', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.light}_${emojiMap.overpowered}`]: { 
+      name: 'Overwhelming Radiance', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.overpowered}_${emojiMap.light}`]: { 
+      name: 'Overwhelming Radiance', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.fire}_${emojiMap.fighting}`]: { 
+      name: 'Blaze Combo', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.fighting}_${emojiMap.fire}`]: { 
+      name: 'Blaze Combo', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 51-55
+    [`${emojiMap.water}_${emojiMap.fighting}`]: { 
+      name: 'Aqua Barrage', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.fighting}_${emojiMap.water}`]: { 
+      name: 'Aqua Barrage', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.wind}_${emojiMap.fighting}`]: { 
+      name: 'Tempest Strike', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.fighting}_${emojiMap.wind}`]: { 
+      name: 'Tempest Strike', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.earth}_${emojiMap.fighting}`]: { 
+      name: 'Tectonic Uppercut', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 56-60
+    [`${emojiMap.fighting}_${emojiMap.earth}`]: { 
+      name: 'Tectonic Uppercut', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.electricity}_${emojiMap.fighting}`]: { 
+      name: 'Thunderous Punch', 
+      description: `Abilities descriptions not added yet`  
+    },
+    [`${emojiMap.fighting}_${emojiMap.electricity}`]: { 
+      name: 'Thunderous Punch', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.metal}_${emojiMap.fighting}`]: { 
+      name: 'Iron Fist', 
+      description: `Abilities descriptions not added yet`  
+    },
+    [`${emojiMap.fighting}_${emojiMap.metal}`]: { 
+      name: 'Iron Fist', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 61-65
+    [`${emojiMap.dark}_${emojiMap.fighting}`]: { 
+      name: 'Shadow Strike', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.fighting}_${emojiMap.dark}`]: { 
+      name: 'Shadow Strike', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
     [`${emojiMap.light}_${emojiMap.fighting}`]: { 
-    name: 'Radiant Fist', 
-    description: `Channels radiant 
-    energy into a powerful strike, 
-    dealing 85% hybrid damage. Has 
-    a 70% chance to cause "Light Impact", 
-    blinding the enemy for 1 turn.` 
-},
-[`${emojiMap.fighting}_${emojiMap.light}`]: { 
-    name: 'Radiant Fist', 
-    description: `Channels radiant 
-    energy into a powerful strike, 
-    dealing 85% hybrid damage. Has 
-    a 70% chance to cause "Light Impact", 
-    blinding the enemy for 1 turn.` 
-},
-
-[`${emojiMap.metal}_${emojiMap.fighting}`]: { 
-    name: 'Steel Smash', 
-    description: `Delivers a crushing 
-    blow infused with metallic energy, 
-    dealing 95% hybrid damage. Has a 75% 
-    chance to cause "Metallic Crush", 
-    reducing enemy defense by 20% for 
-    2 turns.` 
-},
-[`${emojiMap.fighting}_${emojiMap.metal}`]: { 
-    name: 'Steel Smash', 
-    description: `Delivers a crushing 
-    blow infused with metallic energy, 
-    dealing 95% hybrid damage. Has a 75% 
-    chance to cause "Metallic Crush", 
-    reducing enemy defense by 20% for 
-    2 turns.` 
-},
-
-[`${emojiMap.overpowered}_${emojiMap.fighting}`]: { 
-    name: 'Overwhelming Assault', 
-    description: `Unleashes a devastating 
-    flurry of blows empowered by raw energy, 
-    dealing 110% hybrid damage. Has a 50% 
-    chance to cause "Power Surge", increasing 
-    critical hit chance by 25% for 2 turns.` 
-  },
-[`${emojiMap.fighting}_${emojiMap.overpowered}`]: { 
-    name: 'Overwhelming Assault', 
-    description: `Unleashes a devastating 
-    flurry of blows empowered by raw energy, 
-    dealing 110% hybrid damage. Has a 50% 
-    chance to cause "Power Surge", increasing 
-    critical hit chance by 25% for 2 turns.` 
-},
-
-[`${emojiMap.fire}_${emojiMap.neutral}`]: { 
-    name: 'Balanced Inferno', 
-    description: `Unleashes a moderate 
-    blaze, dealing 80% hybrid damage. 
-    Has an equal chance to cause 
-    "Heat Surge" or "Heat Sink". 
-    Heat Surge increases damage by 
-    10% for the next turn, while 
-    Heat Sink decreases enemy 
-    accuracy by 10% for 1 turn.` 
-  },
-[`${emojiMap.neutral}_${emojiMap.fire}`]: { 
-    name: 'Balanced Inferno', 
-    description: `Unleashes a moderate 
-    blaze, dealing 80% hybrid damage. 
-    Has an equal chance to cause 
-    "Heat Surge" or "Heat Sink". 
-    Heat Surge increases damage by 
-    10% for the next turn, while 
-    Heat Sink decreases enemy 
-    accuracy by 10% for 1 turn.` 
-},
-
-[`${emojiMap.wind}_${emojiMap.neutral}`]: { 
-    name: 'Tempered Gust', 
-    description: `Sends forth a moderate 
-    gale, dealing 80% hybrid damage. 
-    Has an equal chance to cause 
-    "Gale Force" or "Gale Shield". 
-    Gale Force increases speed by 10% 
-    for 1 turn, while Gale Shield 
-    increases defense by 10% for 1 turn.` 
-  },
-[`${emojiMap.neutral}_${emojiMap.wind}`]: { 
-    name: 'Tempered Gust', 
-    description: `Sends forth a moderate 
-    gale, dealing 80% hybrid damage. 
-    Has an equal chance to cause 
-    "Gale Force" or "Gale Shield". 
-    Gale Force increases speed by 10% 
-    for 1 turn, while Gale Shield 
-    increases defense by 10% for 1 turn.` 
-},
-//35
-[`${emojiMap.water}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Torrent', 
-  description: `Unleashes a moderate 
-  torrent, dealing 80% hybrid damage. 
-  Has an equal chance to cause 
-  "Torrential Surge" or "Torrential Barrier". 
-  Torrential Surge increases critical hit 
-  chance by 15% for 1 turn, while 
-  Torrential Barrier increases resistance 
-  by 10% for 1 turn.` 
-},
-[`${emojiMap.neutral}_${emojiMap.water}`]: { 
-  name: 'Balanced Torrent', 
-  description: `Unleashes a moderate 
-  torrent, dealing 80% hybrid damage. 
-  Has an equal chance to cause 
-  "Torrential Surge" or "Torrential Barrier". 
-  Torrential Surge increases critical hit 
-  chance by 15% for 1 turn, while 
-  Torrential Barrier increases resistance
-   by 10% for 1 turn.` 
-},
-
-[`${emojiMap.earth}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Quake', 
-  description: `Unleashes a moderate 
-  tremor, dealing 80% hybrid damage. 
-  Has an equal chance to cause 
-  "Quake Impact" or "Quake Shield". 
-  Quake Impact stuns the enemy 
-  for 1 turn, while Quake Shield 
-  grants immunity to status effects 
-  for 1 turn.` 
-},
-[`${emojiMap.neutral}_${emojiMap.earth}`]: { 
-  name: 'Balanced Quake', 
-  description: `Unleashes a moderate 
-  tremor, dealing 80% hybrid damage. 
-  Has an equal chance to cause 
-  "Quake Impact" or "Quake Shield". 
-  Quake Impact stuns the enemy 
-  for 1 turn, while Quake Shield 
-  grants immunity to status effects 
-  for 1 turn.` 
-},
-
-[`${emojiMap.electricity}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Surge', 
-  description: `Unleashes a moderate 
-  surge, dealing 80% hybrid damage. 
-  Has an equal chance to cause 
-  "Surge Shock" or "Surge Shield". 
-  Surge Shock paralyzes the enemy 
-  for 1 turn, while Surge Shield 
-  grants immunity to damage for 1 turn.` 
-},
-[`${emojiMap.neutral}_${emojiMap.electricity}`]: { 
-  name: 'Balanced Surge', 
-  description: `Unleashes a moderate 
-  surge, dealing 80% hybrid damage. 
-  Has an equal chance to cause 
-  "Surge Shock" or "Surge Shield". 
-  Surge Shock paralyzes the enemy 
-  for 1 turn, while Surge Shield 
-  grants immunity to damage for 1 turn.` 
-},
-
-[`${emojiMap.overpowered}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Explosion', 
-  description: `Triggers a controlled 
-  explosion, dealing 90% hybrid damage. 
-  Has an equal chance to cause 
-  "Energy Burst" or "Energy Shield". 
-  Energy Burst deals 15% DOT damage 
-  for 2 turns, while Energy Shield 
-  grants immunity to DOT damage 
-  for 2 turns.` 
-},
-[`${emojiMap.neutral}_${emojiMap.overpowered}`]: { 
-  name: 'Balanced Explosion', 
-  description: `Triggers a controlled 
-  explosion, dealing 90% hybrid damage. 
-  Has an equal chance to cause 
-  "Energy Burst" or "Energy Shield". 
-  Energy Burst deals 15% DOT damage 
-  for 2 turns, while Energy Shield 
-  grants immunity to DOT damage 
-  for 2 turns.` 
-},
-
-[`${emojiMap.dark}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Darkness', 
-  description: `Unleashes a moderate 
-  shadowy blast, dealing 80% hybrid 
-  damage. Has an equal chance to cause 
-  "Shadow Siphon" or "Shadow Shield". 
-  Shadow Siphon drains enemy health 
-  by 10% and heals the user for the 
-  same amount, while Shadow Shield 
-  grants immunity to hybrid damage 
-  for 1 turn.` 
-},
-[`${emojiMap.neutral}_${emojiMap.dark}`]: { 
-  name: 'Balanced Darkness', 
-  description: `Unleashes a moderate 
-  shadowy blast, dealing 80% hybrid 
-  damage. Has an equal chance to cause 
-  "Shadow Siphon" or "Shadow Shield". 
-  Shadow Siphon drains enemy health 
-  by 10% and heals the user for the 
-  same amount, while Shadow Shield 
-  grants immunity to hybrid damage 
-  for 1 turn.` 
-},
-//40
-[`${emojiMap.fighting}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Combat', 
-  description: `Engages in a balanced 
-  combat style, dealing 80% hybrid damage. 
-  Has an equal chance to cause "Combat Stance" 
-  or "Counterstrike". Combat Stance increases 
-  defense by 15% for 1 turn, while Counterstrike 
-  deals 120% damage if the enemy attacks.` 
-},
-[`${emojiMap.neutral}_${emojiMap.fighting}`]: { 
-  name: 'Balanced Combat', 
-  description: `Engages in a balanced 
-  combat style, dealing 80% hybrid damage. 
-  Has an equal chance to cause "Combat Stance" 
-  or "Counterstrike". Combat Stance increases 
-  defense by 15% for 1 turn, while Counterstrike 
-  deals 120% damage if the enemy attacks.` 
-},
-
-[`${emojiMap.light}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Radiance', 
-  description: `Channels a balanced
-  burst of radiant energy, dealing
-  80% hybrid damage. Has an equal 
-  chance to cause "Radiant Surge" 
-  or "Radiant Shield". Radiant Surge 
-  increases accuracy by 15% for 1 turn, 
-  while Radiant Shield grants immunity 
-  to status effects for 1 turn.` 
-},
-[`${emojiMap.neutral}_${emojiMap.light}`]: { 
-  name: 'Balanced Radiance', 
-  description: `Channels a balanced
-  burst of radiant energy, dealing
-  80% hybrid damage. Has an equal 
-  chance to cause "Radiant Surge" 
-  or "Radiant Shield". Radiant Surge 
-  increases accuracy by 15% for 1 turn, 
-  while Radiant Shield grants immunity 
-  to status effects for 1 turn.` 
-},
-
-[`${emojiMap.metal}_${emojiMap.neutral}`]: { 
-  name: 'Balanced Strike', 
-  description: `Delivers a balanced
-  metallic strike, dealing 80% 
-  hybrid damage. Has an equal 
-  chance to cause "Metallic Surge" 
-  or "Metallic Shield". Metallic Surge 
-  increases critical hit chance by 15%
-  for 1 turn, while Metallic Shield 
-  grants immunity to damage for 1 turn.` 
-},
-[`${emojiMap.neutral}_${emojiMap.metal}`]: { 
-  name: 'Balanced Strike', 
-  description: `Delivers a balanced
-  metallic strike, dealing 80% 
-  hybrid damage. Has an equal 
-  chance to cause "Metallic Surge" 
-  or "Metallic Shield". Metallic Surge 
-  increases critical hit chance by 15%
-  for 1 turn, while Metallic Shield 
-  grants immunity to damage for 1 turn.` 
-},
-
-[`${emojiMap.metal}_${emojiMap.dark}`]: { 
-  name: 'Shadowed Strike', 
-  description: `Executes a shadowy
-  metallic strike, dealing 80% hybrid
-  damage. Has an equal chance to cause
-  "Shadow Surge" or "Shadow Veil". 
-  Shadow Surge increases critical hit
-  chance by 15% for 1 turn, while 
-  Shadow Veil grants evasion against 
-  physical attacks for 1 turn.` 
-},
-[`${emojiMap.dark}_${emojiMap.metal}`]: { 
-  name: 'Shadowed Strike', 
-  description: `Executes a shadowy
-  metallic strike, dealing 80% hybrid
-  damage. Has an equal chance to cause
-  "Shadow Surge" or "Shadow Veil". 
-  Shadow Surge increases critical hit
-  chance by 15% for 1 turn, while 
-  Shadow Veil grants evasion against 
-  physical attacks for 1 turn.` 
-},
-//44
+      name: 'Radiant Uppercut', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.fighting}_${emojiMap.light}`]: { 
+      name: 'Radiant Uppercut', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.fire}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Flame', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    // 66-70
+    [`${emojiMap.neutral}_${emojiMap.fire}`]: { 
+      name: 'Neutral Flame', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.earth}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Earth', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.neutral}_${emojiMap.earth}`]: { 
+      name: 'Neutral Earth', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.water}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Water', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.neutral}_${emojiMap.water}`]: { 
+      name: 'Neutral Water', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.wind}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Wind', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    // 71-75
+    [`${emojiMap.neutral}_${emojiMap.wind}`]: { 
+      name: 'Neutral Wind', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.electricity}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Electricity', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.neutral}_${emojiMap.electricity}`]: { 
+      name: 'Neutral Electricity', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.metal}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Metal', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.neutral}_${emojiMap.metal}`]: { 
+      name: 'Neutral Metal', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 76-80
+    [`${emojiMap.dark}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Darkness', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.neutral}_${emojiMap.dark}`]: { 
+      name: 'Neutral Darkness', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.light}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Light', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.neutral}_${emojiMap.light}`]: { 
+      name: 'Neutral Light', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.neutral}_${emojiMap.neutral}`]: { 
+      name: 'Perfect Balance', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 81-85
+    [`${emojiMap.neutral}_${emojiMap.neutral}`]: { 
+      name: 'Perfect Balance', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.light}_${emojiMap.overpowered}`]: { 
+      name: 'Overwhelming Radiance', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.overpowered}_${emojiMap.light}`]: { 
+      name: 'Overwhelming Radiance', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.dark}_${emojiMap.light}`]: { 
+      name: 'Eclipse', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.light}_${emojiMap.dark}`]: { 
+      name: 'Eclipse', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.dark}_${emojiMap.overpowered}`]: { 
+      name: 'Overwhelming Void', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 86-90
+    [`${emojiMap.overpowered}_${emojiMap.dark}`]: { 
+      name: 'Overwhelming Void', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.light}_${emojiMap.dark}`]: { 
+      name: 'Shadow Radiance', 
+      description: `Abilities descriptions not added yet` 
+    },
+    [`${emojiMap.dark}_${emojiMap.light}`]: { 
+      name: 'Shadow Radiance', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.light}_${emojiMap.light}`]: { 
+      name: 'Dual Luminance', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.dark}_${emojiMap.dark}`]: { 
+      name: 'Dual Shadows', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.electricity}_${emojiMap.electricity}`]: { 
+      name: 'Electric Surge', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 91-95
+    [`${emojiMap.metal}_${emojiMap.metal}`]: { 
+      name: 'Metallic Barrage', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.earth}_${emojiMap.earth}`]: { 
+      name: 'Terraquake', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.water}_${emojiMap.water}`]: { 
+      name: 'Hydro Torrent', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.fire}_${emojiMap.fire}`]: { 
+      name: 'Flame Burst', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.wind}_${emojiMap.wind}`]: { 
+      name: 'Gust Surge', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 96-100
+    [`${emojiMap.electricity}_${emojiMap.dark}`]: { 
+      name: 'Voltage Veil', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.dark}_${emojiMap.electricity}`]: { 
+      name: 'Voltage Veil', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.electricity}_${emojiMap.light}`]: { 
+      name: 'Luminous Shock', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.light}_${emojiMap.electricity}`]: { 
+      name: 'Luminous Shock', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.metal}_${emojiMap.light}`]: { 
+      name: 'Shiny Armor', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 101-105
+    [`${emojiMap.light}_${emojiMap.metal}`]: { 
+      name: 'Shiny Armor', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.dark}_${emojiMap.metal}`]: { 
+      name: 'Dark Metal', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.metal}_${emojiMap.dark}`]: { 
+      name: 'Dark Metal', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.wind}_${emojiMap.dark}`]: { 
+      name: 'Dark Gale', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.dark}_${emojiMap.wind}`]: { 
+      name: 'Dark Gale', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    // 106-110
+    [`${emojiMap.dark}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Darkness', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.neutral}_${emojiMap.dark}`]: { 
+      name: 'Neutral Darkness', 
+      description: `Abilities descriptions not added yet` 
+    },
+  
+    [`${emojiMap.light}_${emojiMap.neutral}`]: { 
+      name: 'Neutral Light', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.neutral}_${emojiMap.light}`]: { 
+      name: 'Neutral Light', 
+      description: `Abilities descriptions not added yet` 
+    },
+    
+    [`${emojiMap.dark}_${emojiMap.dark}`]: { 
+      name: 'Dual Shadows', 
+      description: `Abilities descriptions not added yet` 
+    },
   };
+  
 
   const key = `${element}_${baseElement}`;
-  return abilities[key] || { name: 'No special ability', description: 'Two identical elements offer no special ability or advantage.' };
+  return abilities[key] || { name: 'No special ability', description: 'Elements combo for this card don\'t have special ability' };
 }
 
 // Function to create embed for card information
 function createCardInfoEmbed(cardInfo) {
   // Emoji representations for statistics
   const emojiMap = {
-    strength: '💪',
-    defense: '🛡️',
-    agility: '🏃',
-    wisdom: '🧠',
-    energy: '⚡',
-    luck: '🍀',
+      strength: '💪',
+      defense: '🛡️',
+      agility: '🏃',
+      wisdom: '🧠',
+      energy: '⚡',
+      luck: '🍀',
+      'Mage': '🧙‍♂️',
+      'Warrior': '⚔️',
+      'Tank': '🛡️',
+      'Gambler': '🎲',
+      'Engineer': '🔧',
+      'Rogue': '🗡️',
+      'N/A': '❓',
   };
 
   const centeredTitle = `**    ${cardInfo.card_name}** \u2022 ${cardInfo.series || 'N/A'}`;
@@ -2853,22 +2630,31 @@ function createCardInfoEmbed(cardInfo) {
   const specialAbility = generateSpecialAbility(cardInfo.element, cardInfo.base_element);
   const abilityValue = `**Name:** ${specialAbility.name}\n**Description:** ${specialAbility.description}`;
 
+  // Get the emoji for the class
+  const classEmoji = emojiMap[cardInfo.class] || emojiMap['N/A'];
+
   return {
-    color: 0x0099ff,
-    title: centeredTitle,
-    fields: [
-      { name: 'Elements', value: `${cardInfo.element || 'N/A'} \u2022 ${cardInfo.base_element || 'N/A'}` },
-      {
-        name: 'Stats',
-        value: `**STR:** ${cardInfo.strength !== null ? cardInfo.strength + emojiMap.strength : 'N/A'} | **DEF:** ${cardInfo.defense !== null ? cardInfo.defense + emojiMap.defense : 'N/A'} | **AGI:** ${cardInfo.agility !== null ? cardInfo.agility + emojiMap.agility : 'N/A'}
-        **WIS:** ${cardInfo.wisdom !== null ? cardInfo.wisdom + emojiMap.wisdom : 'N/A'} | **ENG:** ${cardInfo.energy !== null ? cardInfo.energy + emojiMap.energy : 'N/A'} | **LCK:** ${cardInfo.luck !== null ? cardInfo.luck + emojiMap.luck : 'N/A'}`,
-      },
-      { name: 'Special Ability', value: abilityValue },
-    ],
-    image: { url: cardInfo.card_url },
-    Footer: { text: 'Legend:\n STR (Strength), DEF (Defense),\nAGI (Agility), WIS (Wisdom),\nENG (Energy), LCK (Luck)' }
+      color: 0x0099ff,
+      title: centeredTitle,
+      fields: [
+          { name: 'Elements', value: `${cardInfo.element || 'N/A'} \u2022 ${cardInfo.base_element || 'N/A'}` },
+          {
+              name: 'Class',
+              value: `${classEmoji} ${cardInfo.class || 'N/A'}`, // Dodano emoji klasy
+          },
+          {
+              name: 'Stats',
+              value: `**STR:** ${cardInfo.strength !== null ? cardInfo.strength + emojiMap.strength : 'N/A'} | **DEF:** ${cardInfo.defense !== null ? cardInfo.defense + emojiMap.defense : 'N/A'} | **AGI:** ${cardInfo.agility !== null ? cardInfo.agility + emojiMap.agility : 'N/A'}
+              **WIS:** ${cardInfo.wisdom !== null ? cardInfo.wisdom + emojiMap.wisdom : 'N/A'} | **ENG:** ${cardInfo.energy !== null ? cardInfo.energy + emojiMap.energy : 'N/A'} | **LCK:** ${cardInfo.luck !== null ? cardInfo.luck + emojiMap.luck : 'N/A'}`,
+          },
+          { name: 'Special Ability', value: abilityValue },
+      ],
+      image: { url: cardInfo.card_url },
+      footer: { text: 'Legend:\n STR (Strength), DEF (Defense),\nAGI (Agility), WIS (Wisdom),\nENG (Energy), LCK (Luck)' }
   };
 }
+
+
 
 // Function to get emoji for an element
 function getEmojiForElement(element) {
@@ -2932,23 +2718,19 @@ function getRandomElementWithChances(elements, chances) {
   return elements[0];
 }
 
+// Function to add card information to the database
 function addCardInfoToDatabase(cardName, latestPrint) {
-  const insertQuery = `
-    INSERT INTO card_info (card_name, latest_print)
-    VALUES (?, ?)
-    ON DUPLICATE KEY UPDATE latest_print = VALUES(latest_print);
-  `;
+  const query = 'INSERT INTO card_info (card_name, latest_print, ) VALUES (?, ?)';
+  const values = [cardName, latestPrint];
 
-  connection.query(insertQuery, [cardName, latestPrint], (err, results) => {
+  connection.query(query, values, (err, results) => {
     if (err) {
-      //console.error('Error adding card info to database:', err.message);
-      console.log('All cards prints updated!')
+      console.error('Error adding card info to database:', err.message);
     } else {
-      console.log('Card info added or updated in database:', results);
+      console.log('Card info added to database:', results);
     }
   });
 }
-
 
 // Function to update user's item amount in the database
 async function updateUserItemsAmount(userId, itemType, newAmount) {
@@ -3096,53 +2878,202 @@ function getRandomNumberInRange(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
-// Function to add a card to the database with default frame ID
-function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement) {
-  // Find the image object with the matching name in imageUrls
-  const imageObject = imageUrls.find((image) => image.name === cardName);
+// Function to add card to the database
+/*function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, baseElement) {
+  const queryClass = 'SELECT class FROM card_info WHERE card_name = ?';
+  connection.query(queryClass, [cardName], (error, results) => {
+      if (error) {
+          console.error('Error fetching class name:', error);
+          return; // Zakończ, jeśli wystąpił błąd
+      }
 
-  // Check if the image object and its series property exist
-  series = imageObject && imageObject.series ? imageObject.series : 'default_series';
+      let className;
+      if (results.length > 0) {
+          className = results[0].class;
+      } else {
+          console.log('No class found for this card name.');
+          return; // Zakończ, jeśli nie znaleziono klasy
+      }
 
-  const elements = ['🔥', '🗿', '💧', '⚙️', '⚡', '🌬️', '💥', '🌑', '💡', '🥊', '🛡️'];
+      // Find the image object with the matching name in imageUrls
+      const imageObject = imageUrls.find((image) => image.name === cardName);
+      const series = imageObject && imageObject.series ? imageObject.series : 'default_series';
 
-  // Randomly choose an element with specified chances
-  const randomElement = getRandomElementWithChances(elements, [9.5,9.5,9.5,9.5,9.5,9.5,5,9.5,9.5,9.5,9.5]);
+      const elements = ['🔥', '🗿', '💧', '⚙️', '⚡', '🌬️', '💥', '🌑', '💡', '🥊', '🛡️'];
 
-  // Randomly generate statistics
-  const strength = getRandomNumberInRange(10, 100);
-  const defense = getRandomNumberInRange(5, 50);
-  const agility = getRandomNumberInRange(5, 30);
-  const wisdom = getRandomNumberInRange(1, 20);
-  const energy = getRandomNumberInRange(10, 50);
-  const luck = getRandomNumberInRange(1, 10);
+      // Randomly choose an element with specified chances
+      const randomElement = getRandomElementWithChances(elements, [9.5, 9.5, 9.5, 9.5, 9.5, 9.5, 5, 9.5, 9.5, 9.5, 9.5]);
 
-  // Default frame ID (frame number 1)
-  const defaultFrameId = 1;
+      // Randomly generate base statistics
+      let strength = getRandomNumberInRange(10, 100);
+      let defense = getRandomNumberInRange(5, 50);
+      let agility = getRandomNumberInRange(5, 30);
+      let wisdom = getRandomNumberInRange(1, 20);
+      let energy = getRandomNumberInRange(10, 50);
+      let luck = getRandomNumberInRange(1, 10);
 
-  // Insert into card_inventory with default frame ID
-  const queryInventory = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, frame_id, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
-  const valuesInventory = [userId, cardName, cardUrl, cardPrint, cardCode, series, element, baseElement, defaultFrameId];
+      // Boost stats based on class
+      switch (className) {
+          case 'Warrior':
+              strength += 30;  // Główna cecha - duży wzrost
+              defense += 15;   // Medium boost (normal)
+              agility += 5;    // Small boost (half of normal)
+              break;
+          case 'Tank':
+              defense += 30;   // Główna cecha - duży wzrost
+              strength += 15;   // Medium boost (normal)
+              wisdom += 5;     // Small boost (half of normal)
+              break;
+          case 'Rogue':
+              agility += 30;   // Główna cecha - duży wzrost
+              luck += 15;      // Medium boost (normal)
+              energy += 5;     // Small boost (half of normal)
+              break;
+          case 'Mage':
+              wisdom += 30;    // Główna cecha - duży wzrost
+              energy += 20;    // High boost (normal)
+              defense += 5;    // Small boost (half of normal)
+              break;
+          case 'Engineer':
+              energy += 30;    // Główna cecha - duży wzrost
+              wisdom += 20;    // High boost (normal)
+              luck += 5;       // Small boost (half of normal)
+              break;
+          case 'Gambler':
+              luck += 30;      // Główna cecha - duży wzrost
+              agility += 15;   // Medium boost (normal)
+              strength += 5;   // Small boost (half of normal)
+              break;
+          default:
+              console.log("Invalid class name.");
+      }
 
-  const queryStats = 'INSERT INTO card_stats (card_code, strength, defense, agility, wisdom, energy, luck) VALUES (?, ?, ?, ?, ?, ?, ?)';
-  const valuesStats = [cardCode, strength, defense, agility, wisdom, energy, luck];
+      const queryInventory = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+      const valuesInventory = [userId, cardName, cardUrl, cardPrint, cardCode, series, randomElement, baseElement];
 
-  // Insert into card_inventory
-  connection.query(queryInventory, valuesInventory, (err, results) => {
-    if (err) {
-      console.error('Error adding card to database:', err.message);
-    } else {
-      console.log('Card added to database:', results);
+      const queryStats = 'INSERT INTO card_stats (card_code, strength, defense, agility, wisdom, energy, luck) VALUES (?, ?, ?, ?, ?, ?, ?)';
+      const valuesStats = [cardCode, strength, defense, agility, wisdom, energy, luck];
 
-      // Insert into card_stats
-      connection.query(queryStats, valuesStats, (statsErr) => {
-        if (statsErr) {
-          console.error('Error adding stats to database:', statsErr.message);
-        }
+      // Insert into card_inventory
+      connection.query(queryInventory, valuesInventory, (err, results) => {
+          if (err) {
+              console.error('Error adding card to database:', err.message);
+          } else {
+              console.log('Card added to database:', results);
+
+              // Insert into card_stats
+              connection.query(queryStats, valuesStats, (statsErr) => {
+                  if (statsErr) {
+                      console.error('Error adding stats to database:', statsErr.message);
+                  }
+              });
+          }
       });
-    }
+  });
+}*/
+function addCardToDatabase(userId, cardName, cardUrl, cardPrint, cardCode, baseElement, callback) {
+  const queryClass = 'SELECT class FROM card_info WHERE card_name = ?';
+  
+  connection.query(queryClass, [cardName], (error, results) => {
+      if (error) {
+          console.error('Error fetching class name:', error);
+          if (callback) callback(error); // Pass the error to the callback
+          return; // Exit if an error occurred
+      }
+
+      let className;
+      if (results.length > 0) {
+          className = results[0].class;
+      } else {
+          console.log('No class found for this card name.');
+          if (callback) callback(new Error('No class found for this card name.')); // Pass the error to the callback
+          return; // Exit if no class found
+      }
+
+      // Find the image object with the matching name in imageUrls
+      const imageObject = imageUrls.find((image) => image.name === cardName);
+      const series = imageObject && imageObject.series ? imageObject.series : 'default_series';
+
+      const elements = ['🔥', '🗿', '💧', '⚙️', '⚡', '🌬️', '💥', '🌑', '💡', '🥊', '🛡️'];
+
+      // Randomly choose an element with specified chances
+      const randomElement = getRandomElementWithChances(elements, [9.5, 9.5, 9.5, 9.5, 9.5, 9.5, 5, 9.5, 9.5, 9.5, 9.5]);
+
+      // Randomly generate base statistics
+      let strength = getRandomNumberInRange(10, 100);
+      let defense = getRandomNumberInRange(5, 50);
+      let agility = getRandomNumberInRange(5, 30);
+      let wisdom = getRandomNumberInRange(1, 20);
+      let energy = getRandomNumberInRange(10, 50);
+      let luck = getRandomNumberInRange(1, 10);
+
+      // Boost stats based on class
+      switch (className) {
+          case 'Warrior':
+              strength += 30;
+              defense += 15;
+              agility += 5;
+              break;
+          case 'Tank':
+              defense += 30;
+              strength += 15;
+              wisdom += 5;
+              break;
+          case 'Rogue':
+              agility += 30;
+              luck += 15;
+              energy += 5;
+              break;
+          case 'Mage':
+              wisdom += 30;
+              energy += 20;
+              defense += 5;
+              break;
+          case 'Engineer':
+              energy += 30;
+              wisdom += 20;
+              luck += 5;
+              break;
+          case 'Gambler':
+              luck += 30;
+              agility += 15;
+              strength += 5;
+              break;
+          default:
+              console.log("Invalid class name.");
+              if (callback) callback(new Error("Invalid class name.")); // Pass the error to the callback
+              return; // Exit if class name is invalid
+      }
+
+      const queryInventory = 'INSERT INTO card_inventory (user_id, card_name, card_url, card_print, card_code, series, element, base_element, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+      const valuesInventory = [userId, cardName, cardUrl, cardPrint, cardCode, series, randomElement, baseElement];
+
+      const queryStats = 'INSERT INTO card_stats (card_code, strength, defense, agility, wisdom, energy, luck) VALUES (?, ?, ?, ?, ?, ?, ?)';
+      const valuesStats = [cardCode, strength, defense, agility, wisdom, energy, luck];
+
+      // Insert into card_inventory
+      connection.query(queryInventory, valuesInventory, (err, results) => {
+          if (err) {
+              console.error('Error adding card to database:', err.message);
+              if (callback) callback(err); // Pass the error to the callback
+              return; // Exit if there's an error
+          }
+
+          console.log('Card added to database:', results);
+
+          // Insert into card_stats
+          connection.query(queryStats, valuesStats, (statsErr) => {
+              if (statsErr) {
+                  console.error('Error adding stats to database:', statsErr.message);
+                  if (callback) callback(statsErr); // Pass the error to the callback
+                  return; // Exit if there's an error
+              }
+              if (callback) callback(null, 'Card and stats added successfully!'); // Success message
+          });
+      });
   });
 }
+
 
 // Function to delete old codes from the database
 async function deleteOldCodes() {
@@ -3389,6 +3320,109 @@ const updateLatestPrintInDatabase = async (cardName, latestPrint) => {
   }
 };
 
+//////////NEW
+//const imageUrls1 = './imageUrls.json';
+const loadAndInsertCardData = async (filePath) => {
+  try {
+    
+    const data = await readFileAsync(filePath, 'utf-8');
+    const jsonData = JSON.parse(data);
+
+    
+    // Przygotowanie zapytania do dodania danych
+    //const insertQuery = 'INSERT INTO user_data (base_element) VALUES (?)';
+
+    for (const item of jsonData) {
+      if (item.baseElement) {
+        //await connection.execute(insertQuery, [item.baseElement]);
+        return new Promise((resolve, reject) => {
+          const query = 'INSERT INTO card_info (base_element) VALUES (?)';
+          connection.query(query, [item.baseElement], (err, results) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(results);
+            }
+          });
+        });
+      }
+    }
+
+      return new Promise((resolve, reject) => {
+        const query = 'INSERT INTO card_info (base_element) VALUES (?)';
+        connection.query(query, [userId, itemType, amount], (err, results) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(results);
+          }
+        });
+      });
+  } catch (error) {
+    console.error('Error with user_data db:', error.message);
+  }
+};
+
+// Function to process JSON data, check for existing cards, and insert new ones
+function processAndAddCardData(filePath) {
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) {
+      console.error('Error reading JSON file:', err.message);
+      return;
+    }
+
+    const cards = JSON.parse(data);
+
+    cards.forEach(card => {
+      const { name, baseElement, description = null } = card;
+      const latestPrint = 0; // Assuming latestPrint is always 0 as per your example
+
+      // Check if the card already exists
+      const checkQuery = 'SELECT COUNT(*) AS count FROM card_info WHERE card_name = ? AND latest_print = ? AND base_element = ?';
+      connection.query(checkQuery, [name, latestPrint, baseElement], (err, results) => {
+        if (err) {
+          console.error('Error checking if card exists:', err.message);
+          return;
+        }
+
+        if (results[0].count === 0) {
+          // Card does not exist, so insert it
+          const insertQuery = 'INSERT INTO card_info (card_name, latest_print, base_element) VALUES (?, ?, ?)';
+          const values = [name, latestPrint, baseElement];
+
+          connection.query(insertQuery, values, (err, results) => {
+            if (err) {
+              //console.error('Error adding card info to database:', err.message);
+            } else {
+              console.log('Card info added to database:', results);
+            }
+          });
+        } else {
+          console.log('Card already exists in database:', name);
+        }
+      });
+    });
+  });
+}
+
+
+function addCardInfoToDatabase(cardName, latestPrint) {
+  const insertQuery = `
+    INSERT INTO card_info (card_name, latest_print)
+    VALUES (?, ?)
+    ON DUPLICATE KEY UPDATE latest_print = VALUES(latest_print);
+  `;
+
+  connection.query(insertQuery, [cardName, latestPrint], (err, results) => {
+    if (err) {
+      //console.error('Error adding card info to database:', err.message);
+      console.log('All cards prints updated!')
+    } else {
+      console.log('Card info added or updated in database:', results);
+    }
+  });
+}
+
 // Function to check if message content starts with a command or its alias and return the matched alias
 function getMatchingAlias(content, command) {
   content = content.toLowerCase();
@@ -3418,72 +3452,7 @@ async function saveUserColor(userId, color) {
   });
 }
 
-//30.082024>>>> [functions]
-// Function to process JSON data, check for existing cards, and insert new ones
-function processAndAddCardData(filePath) {
-  fs.readFile(filePath, 'utf8', (err, data) => {
-    if (err) {
-      console.error('Error reading JSON file:', err.message);
-      return;
-    }
 
-    const cards = JSON.parse(data);
-
-    cards.forEach(card => {
-      const { name, baseElement = null, description = null } = card;
-      const latestPrint = 0; // Assuming latestPrint is always 0 as per your example
-
-      // Check if the card already exists
-      const checkQuery = 'SELECT COUNT(*) AS count FROM card_info WHERE card_name = ? AND latest_print = ?';
-      connection.query(checkQuery, [name, latestPrint], (err, results) => {
-        if (err) {
-          console.error('Error checking if card exists:', err.message);
-          return;
-        }
-
-        if (results[0].count === 0) {
-          // Card does not exist, so insert it
-          const insertQuery = 'INSERT INTO card_info (card_name, latest_print) VALUES (?, ?)';
-          const values = [name, latestPrint];
-
-          connection.query(insertQuery, values, (err, results) => {
-            if (err) {
-              //console.error('Error adding card info to database:', err.message);
-            } else {
-              console.log('Card info added to database:', results);
-            }
-          });
-        } else {
-          console.log('Card already exists in database:', name);
-        }
-      });
-    });
-  });
-}
-
-// Function to add or update frame in the database
-const addOrUpdateFrame = async (frameUrl, frameNumber) => {
-  try {
-      // Check if the frame already exists
-      const checkFrameQuery = 'SELECT frame_id FROM frames WHERE frame_number = ?';
-      const [rows] = await query(checkFrameQuery, [frameNumber]);
-
-      if (rows.length > 0) {
-          // Frame already exists, return its ID
-          return rows[0].frame_id;
-      } else {
-          // Insert new frame
-          const insertFrameQuery = 'INSERT INTO frames (frame_url, frame_number) VALUES (?, ?)';
-          const [result] = await query(insertFrameQuery, [frameUrl, frameNumber]);
-
-          // Return ID of the newly inserted frame
-          return result.insertId;
-      }
-  } catch (error) {
-      console.error('Error adding or updating frame:', error.message);
-      throw error;
-  }
-};
 
 
 // Function to check if message content matches a command or its alias
@@ -3500,8 +3469,16 @@ function startsWithCommand(content, command) {
   return content.startsWith(command) || (aliases[command] && aliases[command].map(alias => alias.toLowerCase()).some(alias => content.startsWith(alias)));
 }
 
+// Function to start the bot
+function startBot() {
+  client.login(process.env.TOKEN);
+}
 
-const loadAndInsertCardData = async (filePath) => {
+// Function to initialize the bot
+async function initializeBot() {
+
+  //loadAndInsertCardData(imageUrlsPath) - >     broken
+  /* const loadAndInsertCardData = async (filePath) => {
   try {
     
     const data = await readFileAsync(filePath, 'utf-8');
@@ -3519,31 +3496,17 @@ const loadAndInsertCardData = async (filePath) => {
   } catch (error) {
     console.error('Error with user_data db:', error.message);
   }
-};
-
-
-// Function to start the bot
-function startBot() {
-  client.login(process.env.TOKEN).catch(error => {
-    console.error('Failed to login:', error);
-  });
-}
-
-// Function to initialize the bot
-async function initializeBot() {
-  loadAndInsertCardData(imageUrlsPath)
-
+};*/
+  //processAndAddCardData('./imageUrls.json') // working
   // Load latest prints from the database
   await loadLatestPrintsFromDatabase();
 
   // Load existing prints from the database
   await loadExistingPrintsFromDatabase();
 
+  //loadAndInsertCardData(imageUrlsPath)
   startBot();
 }
-
-processAndAddCardData('./imageUrls.json');
-
 
 // Initialize the bot
 initializeBot();

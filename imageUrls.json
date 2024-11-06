@@ -3,128 +3,151 @@
     "name": "Genos",
     "url": "https://i.imgur.com/RpoBd3w.png",
     "series": "One Punch Man",
-    "baseElement": "⚙️"
+    "baseElement": "⚙️",
+    "class": "Engineer"
   },
   {
     "name": "Katara",
     "url": "https://i.imgur.com/V98jBZL.png",
     "series": "Avatar",
-    "baseElement": "💧"
+    "baseElement": "💧",
+    "class": "Mage"
   },
   {
     "name": "Kafka",
     "url": "https://i.imgur.com/gCFpBwG.png",
     "series": "Honkai Star Rail",
-    "baseElement": "⚡"
+    "baseElement": "⚡",
+    "class": "Rogue"
   },
   {
     "name": "Blade",
     "url": "https://i.imgur.com/zo6N0tk.png",
     "series": "Honkai Star Rail",
     "baseElement": "⚙️",
-    "description": "A member of the Stellaron Hunters and a swordsman who abandoned his body to become a blade. He pledges loyalty to Destiny's Slave and possesses a terrifying self-healing ability."
+    "description": "A member of the Stellaron Hunters and a swordsman who abandoned his body to become a blade. He pledges loyalty to Destiny's Slave and possesses a terrifying self-healing ability.",
+    "class": "Warrior"
   },
   {
     "name": "Makima",
     "url": "https://i.imgur.com/x4xXRtt.png",
     "series": "Chainsaw Man",
-    "baseElement": "🌑"
+    "baseElement": "🌑",
+    "class": "Tank"
   },
   {
     "name": "Fubuki",
     "url": "https://i.imgur.com/ycrB62W.png",
     "series": "One Punch Man",
-    "baseElement": "🌬️"
+    "baseElement": "🌬️",
+    "class": "Mage"
   },
   {
     "name": "Toph",
     "url": "https://i.imgur.com/djp0hQb.png",
     "series": "Avatar",
-    "baseElement": "🗿"
+    "baseElement": "🗿",
+    "description": "hgccghcghcghfcfgccffgchfcg",
+    "class": "Tank"
   },
   {
     "name": "Anya",
     "url": "https://i.imgur.com/gRXnwj6.png",
     "series": "Spy X Family",
-    "baseElement": "🗿"
+    "baseElement": "🗿",
+    "class": "Mage"
   },
   {
     "name": "Lisa",
     "url": "https://i.imgur.com/gpOTPKp.png",
     "series": "Genshin Impact",
-    "baseElement": "⚡"
+    "baseElement": "⚡",
+    "class": "Mage"
   },
   {
     "name": "Topaz",
     "url": "https://i.imgur.com/ziqxylu.png",
     "series": "Honkai Star Rail",
     "baseElement": "🔥",
-    "description": "Gama's one and only wife"
+    "description": "Gama's one and only wife",
+    "class": "Gambler"
   },
   {
     "name": "Sukuna",
     "url": "https://i.imgur.com/W9A0yK8.png",
     "series": "Jujutsu Kaisen",
-    "baseElement": "🔥"
+    "baseElement": "🔥",
+    "description": "powerfull demonnejf3wdjbkdfwkjbkdcbbnkdcewvbkn",
+    "class": "Mage"
   },
   {
     "name": "Chiaki",
     "url": "https://i.imgur.com/ayelJH6.png",
     "series": "Danganropa",
     "baseElement": "🔥",
-    "description": "Chiaki Nanami is an AI created to help the Ultimate Despairs in their path of redemption in the Virtual World. Simulated to be a normal student in Hope's Peak Academy she was given the title ''Ultimate Gamer''"
+    "description": "DaGlitch's wife.Not one and only tho.",
+    "class": "Gambler"
   },
   {
     "name": "Almir",
     "url": "https://i.imgur.com/OTxzbpb.jpg",
     "series": "Payday",
     "baseElement": "🔥",
-    "description": "Almir Listo, Global Brand Director at Starbreeze Entertainment, with a 12-year career in game development. Known for contributions to titles like PAYDAY, Dead by Daylight, Psychonauts 2, and Old World. Specializes in community-building through game creation, also sharing game development knowledge at schools. Latest achievement: PAYDAY 3, released in 2023, received accolades at Gamescom."
+    "description": "Almir Listo, Global Brand Director at Starbreeze Entertainment, with a 12-year career in game development. Known for contributions to titles like PAYDAY, Dead by Daylight, Psychonauts 2, and Old World. Specializes in community-building through game creation, also sharing game development knowledge at schools. Latest achievement: PAYDAY 3, released in 2023, received accolades at Gamescom.",
+    "class": "Engineer"
   },
   {
     "name": "Korekiyo",
     "url": "https://i.imgur.com/ALlQZsk.png",
     "series": "Danganropa",
     "baseElement": "⚙️",
-    "description": "Korekiyo Shinguji is the ''Ultimate Anthropologist´´ who posses knowledge of cultures all around the world, also being a Serial Killer with split personlaity,who kills women adecuate to be, in his words, ''His sister's friends'', being this one already dead.In his other personality he resembles his sister, wearing lipstick and eyeshadow under his mask."
+    "description": "Korekiyo Shinguji is the ''Ultimate Anthropologist´´ who posses knowledge of cultures all around the world, also being a Serial Killer with split personlaity,who kills women adecuate to be, in his words, ''His sister's friends'', being this one already dead.In his other personality he resembles his sister, wearing lipstick and eyeshadow under his mask.",
+    "class": "Rogue"
   },
   {
     "name": "Alastor",
     "url": "https://i.imgur.com/zR21m0A.png",
     "series": "HazbinHotel",
-    "baseElement": "🔥"
+    "baseElement": "🔥",
+    "description": "madddescription alastor haz",
+    "class": "Mage"
   },
   {
     "name": "Saitama",
     "url": "https://i.imgur.com/9j9q8Gt.png",
     "series": "OnePunchMan",
     "baseElement": "💥",
-    "description": "Just a hero for fun, he is bald and strongest"
+    "description": "Just a hero for fun, he is bald and strongest",
+    "class": "Warrior"
   },
   {
     "name": "King",
     "url": "https://i.imgur.com/UBopsir.png",
     "series": "OnePunchMan",
     "baseElement": "💥",
-    "description": "I'm the strongest man on earth. The S-Class Rank 7 hero, King. Do you know that!?"
+    "description": "I'm the strongest man on earth. The S-Class Rank 7 hero, King. Do you know that!?",
+    "class": "Gambler"
   },
   {
     "name": "Kanna",
     "url": "https://i.imgur.com/xCbQMvn.png",
     "series": "Kobayashi-san_Chi_no_Maid_Dragon",
-    "baseElement": "⚡"
+    "baseElement": "⚡",
+    "class": "Rogue"
   },
   {
     "name": "Artoria",
     "url": "https://i.imgur.com/2HhjAlW.png",
     "series": "Fate",
-    "baseElement": "💥"
+    "baseElement": "💥",
+    "class": "Warrior"
   },
   {
     "name": "Tatsumaki",
     "url": "https://i.imgur.com/aPvkGwK.png",
     "series": "OnePunchMan",
     "baseElement": "🌬️",
-    "description": "Tatsumaki is a powerful character known for her small stature and immense psychic abilities. She possesses extraordinary telekinetic powers, capable of lifting and manipulating large objects with ease. Despite her appearance, she exudes confidence and often displays a haughty demeanor. Her strength and skill make her a formidable force to be reckoned with."
+    "description": "Tatsumaki is a powerful character known for her small stature and immense psychic abilities. She possesses extraordinary telekinetic powers, capable of lifting and manipulating large objects with ease. Despite her appearance, she exudes confidence and often displays a haughty demeanor. Her strength and skill make her a formidable force to be reckoned with.",
+    "class": "Mage"
   }
 ]
